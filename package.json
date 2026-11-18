@@ -1,0 +1,79 @@
+{
+  "name": "obs",
+  "productName": "Estúdio ao Vivo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Estúdio de transmissão ao vivo: detecção e seleção de dispositivos de áudio e vídeo",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
+    "build": "npm run typecheck && electron-vite build",
+    "start": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "test": "vitest run",
+    "selftest": "electron-vite build && env -u ELECTRON_RUN_AS_NODE OBS_SELFTEST=selftest-report.json electron .",
+    "instalador": "npm run build && sh build/make-installer.sh"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.3.0",
+    "lucide-react": "^1.70.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "selfsigned": "^5.5.0",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.2",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7",
+    "vitest": "^5.1.0"
+  },
+  "build": {
+    "appId": "br.com.estudioaovivo.app",
+    "productName": "Estúdio ao Vivo",
+    "artifactName": "Estudio-ao-Vivo-${version}-mac.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/node_modules/ffmpeg-static/**"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.video",
+      "identity": null,
+      "hardenedRuntime": false,
+      "x64ArchFiles": "**/node_modules/ffmpeg-static/ffmpeg",
+      "extendInfo": {
+        "NSCameraUsageDescription": "O Estúdio ao Vivo usa a câmera para mostrar e transmitir a imagem.",
+        "NSMicrophoneUsageDescription": "O Estúdio ao Vivo usa o microfone para levar o som à transmissão.",
+        "NSLocalNetworkUsageDescription": "O Estúdio ao Vivo recebe a imagem dos celulares conectados pela rede Wi-Fi.",
+        "NSAudioCaptureUsageDescription": "O Estúdio ao Vivo captura o som das páginas e mídias da transmissão."
+      }
+    },
+    "dmg": {
+      "title": "Estúdio ao Vivo"
+    }
+  }
+}
