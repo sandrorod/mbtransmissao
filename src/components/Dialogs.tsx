@@ -669,8 +669,24 @@ export function ReplayGalleryDialog({ onClose }: { onClose: () => void }) {
   const [chosen, setChosen] = useState(0);
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // Link público já aponta para a transmissão atual (pasta do projeto no Drive; o Estúdio cria se ainda não existir).
+  const [publicUrl, setPublicUrl] = useState<string | null>(null);
+  const [publicNote, setPublicNote] = useState<string | null>(null);
+  useEffect(() => {
+    void window.studio.driveProjectFolder(false).then(
+      (info) => {
+        const id = /\/folders\/([\w-]+)/.exec(info.url)?.[1];
+        setPublicUrl(id ? `${PUBLIC_REPLAY_URL}/?projeto=${id}` : PUBLIC_REPLAY_URL);
+        setPublicNote(id ? `Abre direto na transmissão “${info.project}”.` : null);
+      },
+      () => {
+        setPublicUrl(PUBLIC_REPLAY_URL);
+        setPublicNote('Google Drive não conectado: o link abre na transmissão mais recente do Drive (Configurações › Google Drive).');
+      },
+    );
+  }, []);
   useEffect(() => { if (mode === 'local' && !link) void window.studio.replayGalleryLink().then(setLink); }, [mode, link]);
-  const url = mode === 'publica' ? PUBLIC_REPLAY_URL : link?.urls[chosen] ?? link?.urls[0] ?? null;
+  const url = mode === 'publica' ? publicUrl : link?.urls[chosen] ?? link?.urls[0] ?? null;
   useEffect(() => {
     if (!url) return setQr(null);
     void QRCode.toDataURL(url, { margin: 1, width: 520, color: { dark: '#0b0c0e', light: '#ffffff' } }).then(setQr);
@@ -707,6 +723,7 @@ export function ReplayGalleryDialog({ onClose }: { onClose: () => void }) {
               {mode === 'publica' && <button type="button" className="btn btn-small" onClick={() => void window.studio.openExternal(url)}>Abrir</button>}
             </div>
           )}
+          {mode === 'publica' && publicNote && <p className="hint">{publicNote}</p>}
           {mode === 'local' && (
             <>
               <p className="hint">Só quem tem este link consegue abrir a página. Na primeira vez o navegador avisa que a conexão “não é particular” (o certificado é deste computador): toque em <b>Mostrar detalhes / Avançado</b> e depois em <b>visitar o site / Continuar</b>.</p>

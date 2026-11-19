@@ -165,8 +165,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { projects: list.map(({ id, name, createdAt }) => ({ id, name, createdAt })) });
     }
     if (path === '/drive') {
-      const list = await projects();
+      let list = await projects();
       const wanted = url.searchParams.get('projeto');
+      // Transmissão nova (pasta acabou de ser criada pelo Estúdio): busca a lista de novo em vez de esperar o cache
+      if (wanted && ID_RE.test(wanted) && !list.some((p) => p.id === wanted) && Date.now() - projectsCache.at > 2000) {
+        projectsCache = { at: 0, value: null };
+        list = await projects();
+      }
       const id = wanted && ID_RE.test(wanted) && list.some((p) => p.id === wanted) ? wanted : list[0]?.id;
       if (!id) return json(res, 200, { available: true, project: '', projectId: null, groups: [] });
       return json(res, 200, { available: true, ...(await listing(id)) });
