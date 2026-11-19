@@ -111,7 +111,7 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
           {url && (
             <div className="link-row">
               <input className="field" readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Link para o celular" />
-              <button type="button" className="btn btn-small" onClick={() => { void navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
+              <button type="button" className="btn btn-small" onClick={() => { void window.studio.copyText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
             </div>
           )}
           {remote.state === 'ligado' && <p className="hint">O link muda cada vez que o endereço público é ligado. Ele só funciona com este código; desligue quando terminar.</p>}
@@ -660,26 +660,38 @@ export function DriveDialog({ onClose }: { onClose: () => void }) {
 }
 
 /** Página dos replays: link secreto e QR Code para abrir a lista da pasta de replays no celular ou outro computador. */
+/** Página pública dos replays (replay-site no Easypanel, lê a pasta do Google Drive). */
+export const PUBLIC_REPLAY_URL = 'https://replay.maisbasquete.com.br';
+
 export function ReplayGalleryDialog({ onClose }: { onClose: () => void }) {
+  const [mode, setMode] = useState<'publica' | 'local'>('publica');
   const [link, setLink] = useState<ReplayGalleryLink | null>(null);
   const [chosen, setChosen] = useState(0);
   const [qr, setQr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  useEffect(() => { void window.studio.replayGalleryLink().then(setLink); }, []);
-  const url = link?.urls[chosen] ?? link?.urls[0] ?? null;
+  useEffect(() => { if (mode === 'local' && !link) void window.studio.replayGalleryLink().then(setLink); }, [mode, link]);
+  const url = mode === 'publica' ? PUBLIC_REPLAY_URL : link?.urls[chosen] ?? link?.urls[0] ?? null;
   useEffect(() => {
     if (!url) return setQr(null);
     void QRCode.toDataURL(url, { margin: 1, width: 520, color: { dark: '#0b0c0e', light: '#ffffff' } }).then(setQr);
   }, [url]);
   return (
     <Modal title="Página dos replays" onClose={onClose} wide>
+      <div className="segmented" role="tablist" aria-label="Qual página">
+        <button type="button" role="tab" aria-selected={mode === 'publica'} className={`btn btn-small ${mode === 'publica' ? 'btn-on' : ''}`} onClick={() => setMode('publica')}>Pública (internet)</button>
+        <button type="button" role="tab" aria-selected={mode === 'local'} className={`btn btn-small ${mode === 'local' ? 'btn-on' : ''}`} onClick={() => setMode('local')}>Só neste Wi‑Fi</button>
+      </div>
       <div className="phone-layout">
         <div className="phone-qr">
           {qr ? <img src={qr} alt="QR Code da página dos replays" /> : <div className="qr-empty">{link?.error ?? (link && link.urls.length === 0 ? 'Sem rede' : 'Preparando o link…')}</div>}
         </div>
         <div className="phone-info">
-          <p className="modal-text">Abra este link num celular ou computador <b>no mesmo Wi‑Fi</b> para ver todos os replays da pasta, separados pelas pastas da área Replay, para assistir e baixar. A lista se atualiza sozinha quando sai replay novo.</p>
-          {link && link.urls.length > 1 && (
+          {mode === 'publica' ? (
+            <p className="modal-text">Qualquer pessoa com este link vê os replays <b>da transmissão mais recente</b> (e pode escolher as anteriores), separados pelas pastas da área Replay, para assistir e baixar. Mostra os replays <b>já enviados ao Google Drive</b> (o envio é automático depois de cada corte) e funciona mesmo com este computador desligado.</p>
+          ) : (
+            <p className="modal-text">Abra este link num celular ou computador <b>no mesmo Wi‑Fi</b> para ver todos os replays deste computador na hora do corte, mesmo antes de irem para o Google Drive.</p>
+          )}
+          {mode === 'local' && link && link.urls.length > 1 && (
             <label className="option-field">
               <span className="option-label">Rede deste computador</span>
               <select className="option-select" value={chosen} onChange={(e) => setChosen(Number(e.target.value))}>
@@ -687,15 +699,20 @@ export function ReplayGalleryDialog({ onClose }: { onClose: () => void }) {
               </select>
             </label>
           )}
-          {link && link.urls.length === 0 && <p className="device-error">{link.running ? 'Este computador não está conectado a nenhuma rede Wi‑Fi ou cabo.' : link.error ?? 'O servidor local não está ligado.'}</p>}
+          {mode === 'local' && link && link.urls.length === 0 && <p className="device-error">{link.running ? 'Este computador não está conectado a nenhuma rede Wi‑Fi ou cabo.' : link.error ?? 'O servidor local não está ligado.'}</p>}
           {url && (
             <div className="link-row">
               <input className="field" readOnly value={url} onFocus={(e) => e.currentTarget.select()} aria-label="Link da página dos replays" />
-              <button type="button" className="btn btn-small" onClick={() => { void navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
+              <button type="button" className="btn btn-small" onClick={() => { void window.studio.copyText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
+              {mode === 'publica' && <button type="button" className="btn btn-small" onClick={() => void window.studio.openExternal(url)}>Abrir</button>}
             </div>
           )}
-          <p className="hint">Só quem tem este link consegue abrir a página. Na primeira vez o navegador avisa que a conexão “não é particular” (o certificado é deste computador): toque em <b>Mostrar detalhes / Avançado</b> e depois em <b>visitar o site / Continuar</b>.</p>
-          <button type="button" className="link-btn" onClick={() => void window.studio.replayGalleryNewLink().then(setLink)} title="O link antigo para de funcionar na hora"><RefreshCw size={12} /> Gerar novo link (o antigo para de funcionar)</button>
+          {mode === 'local' && (
+            <>
+              <p className="hint">Só quem tem este link consegue abrir a página. Na primeira vez o navegador avisa que a conexão “não é particular” (o certificado é deste computador): toque em <b>Mostrar detalhes / Avançado</b> e depois em <b>visitar o site / Continuar</b>.</p>
+              <button type="button" className="link-btn" onClick={() => void window.studio.replayGalleryNewLink().then(setLink)} title="O link antigo para de funcionar na hora"><RefreshCw size={12} /> Gerar novo link (o antigo para de funcionar)</button>
+            </>
+          )}
         </div>
       </div>
       <div className="modal-actions"><button type="button" className="btn btn-primary" onClick={onClose}>Concluir</button></div>
@@ -722,7 +739,7 @@ export function DriveProjectLink() {
         <>
           <div className="link-row">
             <input className="field" readOnly value={info.url} onFocus={(e) => e.currentTarget.select()} aria-label="Link da pasta do projeto no Drive" />
-            <button type="button" className="btn btn-small" onClick={() => { void navigator.clipboard.writeText(info.url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
+            <button type="button" className="btn btn-small" onClick={() => { void window.studio.copyText(info.url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
             <button type="button" className="btn btn-small" onClick={() => void window.studio.driveOpenFolder().catch((e) => setError(ipcError(e)))}><Globe size={13} /> Abrir</button>
           </div>
           {info.shared

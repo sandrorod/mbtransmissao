@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { appendFile, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { app, BrowserWindow, dialog, ipcMain, Menu, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, powerSaveBlocker, safeStorage, screen, session, shell, systemPreferences } from 'electron';
 import { hudOf, layout as validLayout, layoutFile, validatePreferences, validateProject } from '../../src/utils/validate';
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, accountOfDestination, isYoutubeDestination, youtubeDestinationId, type KeysImportResult, type LayoutFile, type MediaAccess, type Preferences, type WindowState } from '../../src/types/studio';
 import { IPC } from '../../src/types/ipc';
@@ -720,6 +720,13 @@ function registerIpc(): void {
   ipcMain.handle(IPC.replayDelete, (_e, id: unknown) => {
     if (!validClipId(id)) throw new Error('Replay inválido.');
     return replay.remove(id).finally(() => galleryEvents.changed());
+  });
+  // Copiar links: navigator.clipboard do Chromium recusa sem foco/permissão na janela do app (botões "Copiar" não faziam nada)
+  ipcMain.handle(IPC.copyText, (_e, text: unknown) => {
+    if (typeof text === 'string' && text.length <= 4000) clipboard.writeText(text);
+  });
+  ipcMain.handle(IPC.openExternal, (_e, url: unknown) => {
+    if (typeof url === 'string' && /^https:\/\/[^\s]+$/.test(url) && url.length <= 2000) void shell.openExternal(url);
   });
   ipcMain.handle(IPC.replayReveal, (_e, id: unknown) => {
     if (validClipId(id)) shell.showItemInFolder(replay.path(id));

@@ -248,14 +248,13 @@ const GALLERY_HTML = `<!doctype html>
   .note { font-size: 13px; color: #d7dade; overflow-wrap: anywhere; }
   .actions { display: flex; gap: 8px; margin-top: 6px; }
   .actions a { flex: 1; text-align: center; padding: 8px; border-radius: 6px; background: var(--accent); color: #111; font-weight: 700; font-size: 13px; text-decoration: none; }
-  .drive-link { padding: 7px 12px; border-radius: 8px; border: 1px solid var(--accent); color: var(--accent); text-decoration: none; font-size: 13px; font-weight: 700; white-space: nowrap; }
   .source { color: var(--muted); font-size: 12.5px; margin: 0 0 10px; }
   .empty { color: var(--muted); text-align: center; padding: 40px 16px; }
   .error { color: #ff8a8a; text-align: center; padding: 16px; }
 </style>
 </head>
 <body>
-<header><h1 id="titulo">Replays</h1><span class="count" id="count"></span><a id="abrir-drive" class="drive-link" target="_blank" rel="noopener noreferrer" hidden>Abrir no Google Drive</a><input id="busca" type="search" placeholder="Buscar" aria-label="Buscar replays"></header>
+<header><h1 id="titulo">Replays</h1><span class="count" id="count"></span><input id="busca" type="search" placeholder="Buscar" aria-label="Buscar replays"></header>
 <main id="lista"><p class="empty">Carregando…</p></main>
 <script src="app.js"></script>
 </body>
@@ -268,7 +267,6 @@ const GALLERY_SCRIPT = `(() => {
   const count = document.getElementById('count');
   const search = document.getElementById('busca');
   const title = document.getElementById('titulo');
-  const driveLink = document.getElementById('abrir-drive');
   // Mostra a pasta do projeto no Google Drive; sem Drive conectado, os replays deste computador.
   let view = null;
   let shown = '';
@@ -334,7 +332,6 @@ const GALLERY_SCRIPT = `(() => {
     const total = view.groups.reduce((n, g) => n + g.items.length, 0);
     count.textContent = total + (total === 1 ? ' vídeo' : ' vídeos');
     if (view.project) { title.textContent = 'Replays · ' + view.project; document.title = 'Replays · ' + view.project; }
-    if (view.url) { driveLink.href = view.url; driveLink.hidden = false; } else driveLink.hidden = true;
     const groups = view.groups.map((g) => ({ ...g, items: g.items.filter((it) => !q || (it.name + ' ' + it.note).toLowerCase().includes(q)) }));
     const key = JSON.stringify([q, view.source, groups.map((g) => [g.id, g.name, g.items.map(sigOf), g.items.map((it) => it.key)])]);
     if (key === shown) return;

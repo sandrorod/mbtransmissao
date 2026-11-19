@@ -89,6 +89,8 @@ const api: StudioApi = {
   replayRead: (id) => ipcRenderer.invoke(IPC.replayRead, id),
   replayDelete: (id) => ipcRenderer.invoke(IPC.replayDelete, id),
   replayReveal: (id) => ipcRenderer.invoke(IPC.replayReveal, id),
+  copyText: (text) => ipcRenderer.invoke(IPC.copyText, text),
+  openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
   replayUpdate: (id, patch) => ipcRenderer.invoke(IPC.replayUpdate, id, patch),
   replayCamStart: (key, label, mimeType) => ipcRenderer.invoke(IPC.replayCamStart, key, label, mimeType),
   // Pedaços das câmeras: sem esperar resposta, como os do programa.

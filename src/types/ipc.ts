@@ -83,6 +83,8 @@ export const IPC = {
   replayRead: 'replay:read',
   replayDelete: 'replay:delete',
   replayReveal: 'replay:reveal',
+  copyText: 'app:copy-text',
+  openExternal: 'app:open-external',
   replayUpdate: 'replay:update',
   replayCamStart: 'replay:cam-start',
   replayCamChunk: 'replay:cam-chunk',

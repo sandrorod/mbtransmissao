@@ -829,3 +829,7 @@ button.replay-chip:hover { color: var(--text); border-color: var(--accent); }
 .trim-labels { display: flex; justify-content: space-between; gap: 8px; font-size: 10.4px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .trim-labels strong { color: var(--text, inherit); }
 .trim-length { text-align: center; }
+
+/* Escolha entre duas opções (ex.: página pública ou só no Wi‑Fi). */
+.segmented { display: flex; gap: 4px; margin-bottom: 12px; }
+.segmented .btn { flex: 1; justify-content: center; }

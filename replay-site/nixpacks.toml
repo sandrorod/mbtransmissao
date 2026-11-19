@@ -1,0 +1,11 @@
+# Easypanel: serviço "replay" com Build Path /replay-site. Sem dependências: só Node 20.
+providers = ["node"]
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["echo sem dependencias"]
+
+[start]
+cmd = "node server.mjs"

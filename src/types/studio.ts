@@ -849,6 +849,10 @@ export interface StudioApi {
   replayRead(id: string): Promise<Uint8Array>;
   replayDelete(id: string): Promise<ReplayClip[]>;
   replayReveal(id: string): Promise<void>;
+  /** Copia texto pela área de transferência do sistema (a do navegador falha na janela do app). */
+  copyText(text: string): Promise<void>;
+  /** Abre um endereço https no navegador do sistema. */
+  openExternal(url: string): Promise<void>;
   /** Muda nome, pasta, observação ou corte do replay. */
   replayUpdate(id: string, patch: ReplayPatch): Promise<ReplayClip[]>;
   replayFolders(): Promise<ReplayFolder[]>;

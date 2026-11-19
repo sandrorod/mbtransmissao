@@ -1,0 +1,9 @@
+{
+  "name": "replay-site",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Página pública dos replays do Estúdio ao Vivo (lê a pasta do Google Drive)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node server.mjs" }
+}
