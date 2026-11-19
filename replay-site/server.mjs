@@ -46,8 +46,15 @@ async function children(parent, order = 'createdTime desc') {
 }
 
 const isVideo = (f) => typeof f.mimeType === 'string' && f.mimeType.startsWith('video/');
+// O Google recusa (403) o download de vídeo pedido do servidor (IP de datacenter) com chave de API, mas aceita
+// quando é o navegador de quem assiste que pede: a página toca e baixa direto do Drive, sem passar por aqui.
+// A chave aparece na página: ela só lê arquivos públicos e deve ficar restrita à Google Drive API.
+const mediaUrl = (id) => `${API}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(KEY)}`;
+const downloadUrl = (id) => `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
 const video = (f) => ({
   id: f.id,
+  src: mediaUrl(f.id),
+  download: downloadUrl(f.id),
   name: f.name.replace(/\.(mp4|mov|m4v|webm)$/i, ''),
   bytes: Number(f.size ?? 0),
   createdAt: f.createdTime ? Date.parse(f.createdTime) : 0,
@@ -155,7 +162,7 @@ const server = http.createServer(async (req, res) => {
         ...SECURITY,
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self'; img-src 'self' data:",
+        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self' https://www.googleapis.com; img-src 'self' data:",
       });
       return void res.end(HTML);
     }
@@ -271,7 +278,7 @@ const SCRIPT = `(() => {
     return el('article', { class: 'clip' }, video, el('div', { class: 'info' },
       el('span', { class: 'name' }, it.name),
       el('span', { class: 'meta' }, meta),
-      el('div', { class: 'actions' }, el('a', { href: it.download, download: '' }, 'Baixar'))));
+      el('div', { class: 'actions' }, el('a', { href: it.download, target: '_blank', rel: 'noopener' }, 'Baixar'))));
   };
   const cardFor = (it) => {
     const sig = sigOf(it);
@@ -291,8 +298,8 @@ const SCRIPT = `(() => {
     project: d.project, projectId: d.projectId,
     groups: d.groups.map((g) => ({ id: g.name === null ? '__sem__' : 'g:' + g.name, name: g.name, items: g.videos.map((v) => ({
       key: v.id, name: v.name, createdAt: v.createdAt, seconds: v.seconds, bytes: v.bytes,
-      src: '/d/' + encodeURIComponent(v.id) + '#t=0.1',
-      download: '/d/' + encodeURIComponent(v.id) + '?baixar=1&nome=' + encodeURIComponent(v.name),
+      src: (v.src || '/d/' + encodeURIComponent(v.id)) + '#t=0.1',
+      download: v.download || '/d/' + encodeURIComponent(v.id) + '?baixar=1&nome=' + encodeURIComponent(v.name),
     })) })),
   });
   const emptyEl = el('p', { class: 'empty' });
