@@ -269,11 +269,9 @@ export interface Preferences {
   replayOutro: ReplayIntro | null;
   /** Efeito entre a abertura e os replays (e entre um replay e outro). */
   replayTransition: ReplayTransition;
-  /** Velocidade dos vídeos de replay (câmera lenta ou acelerado); as vinhetas passam sempre na velocidade normal. */
-  replaySpeed: number;
 }
 
-/** Velocidades do replay oferecidas na tela (1 = normal). */
+/** Velocidades do replay oferecidas na tela (1 = normal). Não fica salva: o Estúdio sempre abre em 1x. */
 export const REPLAY_SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2] as const;
 
 /** Qual vinheta do replay: a de entrada (abertura) ou a de saída. */
@@ -451,7 +449,6 @@ export const EMPTY_PREFERENCES: Preferences = {
   replayIntro: null,
   replayOutro: null,
   replayTransition: DEFAULT_TRANSITION,
-  replaySpeed: 1,
 };
 
 /** Plataformas com o servidor já preenchido; a chave é sempre do operador. */

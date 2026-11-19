@@ -1,4 +1,4 @@
-import { type ChromaKey, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, REPLAY_SPEEDS } from '../types/studio';
+import { type ChromaKey, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../types/studio';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown, max = 300) => typeof v === 'string' && v.length <= max;
@@ -212,7 +212,6 @@ export function validatePreferences(value: unknown): Preferences {
       replayIntro: replayIntro(value.replayIntro),
       replayOutro: replayIntro(value.replayOutro),
       replayTransition: replayTransition(value.replayTransition),
-      replaySpeed: (REPLAY_SPEEDS as readonly number[]).includes(value.replaySpeed as number) ? (value.replaySpeed as number) : 1,
     };
   } catch {
     return { ...EMPTY_PREFERENCES };

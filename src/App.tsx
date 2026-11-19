@@ -181,9 +181,11 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   useEffect(() => {
     player.configure(prefs.replayIntro, prefs.replayOutro, prefs.replayTransition);
   }, [player, prefs.replayIntro, prefs.replayOutro, prefs.replayTransition]);
+  // Velocidade dos replays: vale enquanto o app está aberto; sempre começa em 1x (não fica salva)
+  const [replaySpeed, setReplaySpeed] = useState(1);
   useEffect(() => {
-    player.setSpeed(prefs.replaySpeed);
-  }, [player, prefs.replaySpeed]);
+    player.setSpeed(replaySpeed);
+  }, [player, replaySpeed]);
 
   /** Fontes e cenas afetadas por um aparelho (para avisar o operador do que caiu). */
   const usesOf = (device: SystemDevice) => {
@@ -1138,8 +1140,8 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         player={player}
         seconds={prefs.replaySeconds}
         onSeconds={(replaySeconds) => updatePrefs({ ...prefs, replaySeconds })}
-        speed={prefs.replaySpeed}
-        onSpeed={(replaySpeed) => updatePrefs({ ...prefs, replaySpeed })}
+        speed={replaySpeed}
+        onSpeed={setReplaySpeed}
       />
     ),
   };
