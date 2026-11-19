@@ -46,13 +46,16 @@ async function children(parent, order = 'createdTime desc') {
 }
 
 const isVideo = (f) => typeof f.mimeType === 'string' && f.mimeType.startsWith('video/');
-// Vídeo e Baixar: link público de download do próprio Drive, pedido pelo navegador de quem assiste (sem chave).
-// O download pela API com chave (alt=media) é bloqueado pelo Google ("automated queries", 403) depois de poucos
-// usos — do servidor sempre, e até de navegadores. Este link aceita Range (avançar/voltar) e já manda o nome do
-// arquivo no Baixar. Arquivos grandes (> ~100 MB) passariam por um aviso de antivírus; os replays são pequenos.
+// Vídeos: o link público de download do Drive (drive.usercontent.google.com, sem chave) funciona como download,
+// mas o Google recusa (403) quando é aberto num <video> de outro site. Então:
+//  - prévia: /d/<id>, este servidor busca no Drive como download comum e repassa (com Range: avançar/voltar);
+//    se mesmo assim falhar, a página troca para o player oficial do Drive embutido (/file/d/<id>/preview);
+//  - Baixar: direto no Drive (já vem com o nome do arquivo).
+// O download pela API com chave (alt=media) foi abandonado: o Google bloqueia ("automated queries", 403).
 const USERCONTENT = 'https://drive.usercontent.google.com/download';
-const mediaUrl = (id) => `${USERCONTENT}?id=${encodeURIComponent(id)}&export=download`;
-const downloadUrl = mediaUrl;
+const driveDownload = (id) => `${USERCONTENT}?id=${encodeURIComponent(id)}&export=download`;
+const mediaUrl = (id) => `/d/${encodeURIComponent(id)}`;
+const downloadUrl = driveDownload;
 const video = (f) => ({
   id: f.id,
   src: mediaUrl(f.id),
@@ -126,8 +129,9 @@ async function streamVideo(req, res, url, id) {
     if (!knownVideos.has(id)) return void res.writeHead(404, { ...SECURITY, 'X-Motivo': 'video-fora-da-pasta' }).end();
   }
   const range = typeof req.headers.range === 'string' && /^bytes=\d*-\d*$/.test(req.headers.range) ? req.headers.range : undefined;
-  const upstream = await fetch(`${API}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(KEY)}`, {
-    headers: range ? { Range: range } : {},
+  const upstream = await fetch(driveDownload(id), {
+    headers: { ...(range ? { Range: range } : {}), 'User-Agent': 'Mozilla/5.0 (replay.maisbasquete.com.br)' },
+    signal: AbortSignal.timeout(60_000),
   });
   if (!upstream.ok || !upstream.body) {
     const detail = (await upstream.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
@@ -165,7 +169,7 @@ const server = http.createServer(async (req, res) => {
         ...SECURITY,
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self' https://drive.usercontent.google.com; img-src 'self' data:",
+        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self'; frame-src https://drive.google.com; img-src 'self' data:",
       });
       return void res.end(HTML);
     }
@@ -232,7 +236,7 @@ const HTML = `<!doctype html>
   .clip { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #0f1114; }
   .clip[data-novo="1"] { animation: novo 2.5s ease-out; }
   @keyframes novo { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 0 transparent; } }
-  .clip video { width: 100%; aspect-ratio: 16 / 9; background: #000; display: block; }
+  .clip video, .clip .player { width: 100%; aspect-ratio: 16 / 9; background: #000; display: block; border: 0; }
   .info { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 4px; }
   .name { font-weight: 700; overflow-wrap: anywhere; }
   .meta { color: var(--muted); font-size: 12.5px; }
@@ -275,8 +279,11 @@ const SCRIPT = `(() => {
   const when = (ms) => ms ? new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
   const secs = (s) => s === null || s === undefined ? '' : s.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' s';
   const sigOf = (it) => JSON.stringify([it.name, it.src, it.seconds, it.bytes]);
+  /** Player oficial do Drive embutido: usado quando o vídeo não abre pelo servidor. */
+  const drivePlayer = (it) => el('iframe', { src: 'https://drive.google.com/file/d/' + encodeURIComponent(it.key) + '/preview', allow: 'autoplay; fullscreen', allowfullscreen: '', loading: 'lazy', title: it.name, class: 'player' });
   const card = (it) => {
     const video = el('video', { controls: '', preload: 'metadata', playsinline: '', src: it.src });
+    video.addEventListener('error', () => { if (video.isConnected) video.replaceWith(drivePlayer(it)); }, { once: true });
     const meta = [when(it.createdAt), secs(it.seconds), size(it.bytes)].filter(Boolean).join(' · ');
     return el('article', { class: 'clip' }, video, el('div', { class: 'info' },
       el('span', { class: 'name' }, it.name),
