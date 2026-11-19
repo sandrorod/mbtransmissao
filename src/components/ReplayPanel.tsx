@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { ChevronDown, ChevronRight, Clapperboard, CloudUpload, Globe, Film, Pipette, Folder, FolderOpen, FolderPlus, FolderSearch, Pencil, Play, Scissors, Square, Trash2, Upload, X } from 'lucide-react';
-import { DEFAULT_CHROMA, REPLAY_MAX, REPLAY_MIN, TRANSITIONS, type ChromaKey, type ReplayClip, type ReplayFolder, type ReplayIntro, type ReplayTransition, type TransitionKind, type VignetteKind } from '../types/studio';
+import { ChevronDown, ChevronRight, Clapperboard, CloudUpload, Gauge, Globe, Film, Pipette, Folder, FolderOpen, FolderPlus, FolderSearch, Pencil, Play, Scissors, Square, Trash2, Upload, X } from 'lucide-react';
+import { DEFAULT_CHROMA, REPLAY_MAX, REPLAY_MIN, REPLAY_SPEEDS, TRANSITIONS, type ChromaKey, type ReplayClip, type ReplayFolder, type ReplayIntro, type ReplayTransition, type TransitionKind, type VignetteKind } from '../types/studio';
 import type { ReplayPlayer } from '../program/replay';
 import { INTRO_ID, OUTRO_ID, useReplay } from '../program/replay';
 import { Modal } from './common';
@@ -94,11 +94,58 @@ function ReplayTime({ seconds, onChange }: { seconds: number; onChange: (s: numb
   );
 }
 
+const speedLabel = (v: number) => `${String(v).replace('.', ',')}x`;
+
+/** Velocidade dos replays (câmera lenta). Só os vídeos de replay; as vinhetas passam sempre em 1x. */
+function ReplaySpeed({ speed, onChange }: { speed: number; onChange: (v: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('pointerdown', away, true);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <span className="replay-time" ref={box}>
+      <button
+        type="button"
+        className={`replay-chip ${open ? 'replay-chip-open' : ''}`}
+        data-tip={open ? undefined : `Velocidade dos replays: ${speedLabel(speed)}${speed < 1 ? ' (câmera lenta)' : ''}. As vinhetas passam sempre na velocidade normal.`}
+        aria-label={`Velocidade dos replays: ${speedLabel(speed)}. Clique para alterar.`}
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Gauge size={12} /> {speedLabel(speed)}
+      </button>
+      {open && (
+        <span className="replay-time-pop" role="dialog" aria-label="Velocidade dos replays">
+          <span className="replay-time-head">
+            <strong>Velocidade dos replays</strong>
+            <output>{speedLabel(speed)}</output>
+          </span>
+          <span className="replay-time-presets">
+            {REPLAY_SPEEDS.map((v) => (
+              <button key={v} type="button" className={`btn btn-small ${v === speed ? 'btn-on' : ''}`} onClick={() => { onChange(v); setOpen(false); }}>{speedLabel(v)}</button>
+            ))}
+          </span>
+          <small>Vale na hora, inclusive no replay que está no ar. As vinhetas de entrada e saída não mudam.</small>
+        </span>
+      )}
+    </span>
+  );
+}
+
 /**
  * Replays cortados durante a transmissão (⌘R / Ctrl+R), organizados em pastas. Clicar põe no ar na hora; com vários
  * marcados, "Exibir" passa todos, do mais recente para o mais antigo (com a abertura e as transições).
  */
-export function ReplayPanel({ player, seconds, onSeconds }: { player: ReplayPlayer; seconds: number; onSeconds: (s: number) => void }) {
+export function ReplayPanel({ player, seconds, onSeconds, speed, onSpeed }: { player: ReplayPlayer; seconds: number; onSeconds: (s: number) => void; speed: number; onSpeed: (v: number) => void }) {
   const { clips, folders, playing, queue } = useReplay(player);
   const [chosen, setChosen] = useState<Set<string>>(() => new Set());
   const [editing, setEditing] = useState<string | null>(null);
@@ -237,6 +284,7 @@ export function ReplayPanel({ player, seconds, onSeconds }: { player: ReplayPlay
           ) : (
             <ReplayTime seconds={seconds} onChange={onSeconds} />
           )}
+          <ReplaySpeed speed={speed} onChange={onSpeed} />
           <button type="button" className="icon-btn" aria-label="Página dos replays" data-tip="Página dos replays: link e QR Code para ver e baixar no celular ou outro computador (mesmo Wi‑Fi)" onClick={() => setGallery(true)}><Globe size={15} /></button>
           <button type="button" className="icon-btn" aria-label="Nova pasta de replays" data-tip="Nova pasta: arraste replays para dentro" onClick={newFolder}><FolderPlus size={15} /></button>
         </span>

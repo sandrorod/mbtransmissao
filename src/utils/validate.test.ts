@@ -138,3 +138,13 @@ describe('vinhetas do replay', () => {
     expect(validatePreferences({}).replayOutro).toBeNull();
   });
 });
+
+describe('velocidade do replay', () => {
+  it('aceita só as velocidades oferecidas e volta para 1x no resto', () => {
+    expect(validatePreferences({ replaySpeed: 0.5 }).replaySpeed).toBe(0.5);
+    expect(validatePreferences({ replaySpeed: 0.25 }).replaySpeed).toBe(0.25);
+    expect(validatePreferences({ replaySpeed: 3 }).replaySpeed).toBe(1);
+    expect(validatePreferences({ replaySpeed: 'rápido' }).replaySpeed).toBe(1);
+    expect(validatePreferences({}).replaySpeed).toBe(1);
+  });
+});

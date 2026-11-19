@@ -75,6 +75,8 @@ export class ReplayPlayer {
   private outro: ReplayIntro | null = null;
   private vignetteUrls = new Map<VignetteKind, { key: string; url: string }>();
   private transition: ReplayTransition = DEFAULT_TRANSITION;
+  /** Velocidade dos replays (câmera lenta). As vinhetas tocam sempre em 1x. */
+  private speed = 1;
 
   // Sequência no ar.
   private steps: Step[] = [];
@@ -115,6 +117,23 @@ export class ReplayPlayer {
       // Já deixa o arquivo carregado: no primeiro replay a vinheta entra sem esperar a leitura do disco.
       if (v) void this.vignetteStep(kind).catch(() => undefined);
     }
+  }
+
+  /** Muda a velocidade dos replays; vale na hora para o replay no ar e o próximo já carregado (não para vinhetas). */
+  setSpeed(speed: number): void {
+    this.speed = speed > 0 ? speed : 1;
+    for (const run of [this.cur, this.next]) if (run) this.applyRate(run);
+  }
+
+  private applyRate(run: Running): void {
+    const rate = run.step.vignette ? 1 : this.speed;
+    run.video.defaultPlaybackRate = rate;
+    run.video.playbackRate = rate;
+  }
+
+  /** Tempo real (ms) que falta tocar de um trecho do vídeo, considerando a velocidade. */
+  private realMs(run: Running, videoSeconds: number): number {
+    return (videoSeconds * 1000) / (run.video.playbackRate || 1);
   }
 
   async refresh(): Promise<void> {
@@ -285,7 +304,9 @@ export class ReplayPlayer {
       this.dispose(video);
       return null;
     }
-    return { step, video };
+    const run = { step, video };
+    this.applyRate(run);
+    return run;
   }
 
   /** Deixa o próximo vídeo carregado e parado no ponto de início (a transição começa sem espera). */
@@ -303,6 +324,7 @@ export class ReplayPlayer {
   }
 
   private begin(run: Running, phase: Phase): void {
+    this.applyRate(run);
     void run.video.play().catch(() => undefined);
     this.enter(phase);
     this.set({ playing: run.step.id, queue: this.steps.slice(this.index + 1).filter((s) => !s.vignette).map((s) => s.id) });
@@ -319,7 +341,7 @@ export class ReplayPlayer {
   /** Duração da transição: nunca mais que metade do vídeo mais curto envolvido. */
   private transitionMs(...videos: (Running | null)[]): number {
     if (this.transition.kind === 'corte') return 0;
-    const lengths = videos.filter((v): v is Running => v !== null).map((v) => ((v.step.end ?? v.video.duration) - v.step.start) * 1000).filter((ms) => Number.isFinite(ms) && ms > 0);
+    const lengths = videos.filter((v): v is Running => v !== null).map((v) => this.realMs(v, (v.step.end ?? v.video.duration) - v.step.start)).filter((ms) => Number.isFinite(ms) && ms > 0);
     return Math.min(this.transition.ms, ...lengths.map((ms) => ms / 2));
   }
 
@@ -336,7 +358,8 @@ export class ReplayPlayer {
     const end = cur.step.end ?? cur.video.duration;
     // Corte do fim: segura o último quadro.
     if (Number.isFinite(end) && cur.video.currentTime >= end && !cur.video.paused) cur.video.pause();
-    const remainingMs = Number.isFinite(end) ? (end - cur.video.currentTime) * 1000 : Infinity;
+    // Em tempo real: em câmera lenta o mesmo trecho do vídeo dura mais
+    const remainingMs = Number.isFinite(end) ? this.realMs(cur, end - cur.video.currentTime) : Infinity;
     const last = this.index >= this.steps.length - 1;
     // Vinheta de saída no fim: passa inteira e corta direto para a cena (ela mesma é a transição).
     if (last && cur.step.id === OUTRO_ID) {

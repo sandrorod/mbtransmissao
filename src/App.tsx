@@ -181,6 +181,9 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   useEffect(() => {
     player.configure(prefs.replayIntro, prefs.replayOutro, prefs.replayTransition);
   }, [player, prefs.replayIntro, prefs.replayOutro, prefs.replayTransition]);
+  useEffect(() => {
+    player.setSpeed(prefs.replaySpeed);
+  }, [player, prefs.replaySpeed]);
 
   /** Fontes e cenas afetadas por um aparelho (para avisar o operador do que caiu). */
   const usesOf = (device: SystemDevice) => {
@@ -1130,7 +1133,15 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         onPrefs={updatePrefs}
       />
     ),
-    replay: <ReplayPanel player={player} seconds={prefs.replaySeconds} onSeconds={(replaySeconds) => updatePrefs({ ...prefs, replaySeconds })} />,
+    replay: (
+      <ReplayPanel
+        player={player}
+        seconds={prefs.replaySeconds}
+        onSeconds={(replaySeconds) => updatePrefs({ ...prefs, replaySeconds })}
+        speed={prefs.replaySpeed}
+        onSpeed={(replaySpeed) => updatePrefs({ ...prefs, replaySpeed })}
+      />
+    ),
   };
   const renderArea = (id: PanelId) => (expanded === id ? (
     <section className="stage-box area-away" aria-label={PANEL_NAMES[id]}>
