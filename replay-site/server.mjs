@@ -113,13 +113,17 @@ async function streamVideo(req, res, url, id) {
     } catch {
       /* segue para o 404 */
     }
-    if (!knownVideos.has(id)) return void res.writeHead(404, SECURITY).end();
+    if (!knownVideos.has(id)) return void res.writeHead(404, { ...SECURITY, 'X-Motivo': 'video-fora-da-pasta' }).end();
   }
   const range = typeof req.headers.range === 'string' && /^bytes=\d*-\d*$/.test(req.headers.range) ? req.headers.range : undefined;
   const upstream = await fetch(`${API}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(KEY)}`, {
     headers: range ? { Range: range } : {},
   });
-  if (!upstream.ok || !upstream.body) return void res.writeHead(upstream.status === 416 ? 416 : 404, SECURITY).end();
+  if (!upstream.ok || !upstream.body) {
+    const detail = (await upstream.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+    console.error(`[replay-site] Drive recusou o vídeo ${id}: ${upstream.status} ${detail}`);
+    return void res.writeHead(upstream.status === 416 ? 416 : 404, { ...SECURITY, 'X-Motivo': `drive-${upstream.status}` }).end();
+  }
   const headers = { ...SECURITY, 'Content-Type': upstream.headers.get('content-type') ?? 'video/mp4', 'Accept-Ranges': 'bytes', 'Cache-Control': 'public, max-age=3600' };
   for (const h of ['content-length', 'content-range']) {
     const v = upstream.headers.get(h);
@@ -166,7 +170,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (path === '/drive') {
       let list = await projects();
-      const wanted = url.searchParams.get('projeto');
+      const wanted = url.searchParams.get('p') ?? url.searchParams.get('projeto');
       // Transmissão nova (pasta acabou de ser criada pelo Estúdio): busca a lista de novo em vez de esperar o cache
       if (wanted && ID_RE.test(wanted) && !list.some((p) => p.id === wanted) && Date.now() - projectsCache.at > 2000) {
         projectsCache = { at: 0, value: null };
@@ -244,7 +248,8 @@ const SCRIPT = `(() => {
   const title = document.getElementById('titulo');
   const picker = document.getElementById('projeto');
   // Transmissão escolhida (na URL: dá para mandar o link de uma transmissão antiga); vazio = a mais recente.
-  let chosen = new URLSearchParams(location.search).get('projeto') || '';
+  const params = new URLSearchParams(location.search);
+  let chosen = params.get('p') || params.get('projeto') || '';
   let view = null;
   let shown = '';
   const open = new Set(['__sem__']);
@@ -341,7 +346,7 @@ const SCRIPT = `(() => {
   };
   const load = async () => {
     try {
-      const r = await fetch('/drive' + (chosen ? '?projeto=' + encodeURIComponent(chosen) : ''), { cache: 'no-store' });
+      const r = await fetch('/drive' + (chosen ? '?p=' + encodeURIComponent(chosen) : ''), { cache: 'no-store' });
       const d = await r.json();
       if (!d.available) throw new Error(d.error || 'Replays indisponíveis no momento.');
       const next = fromDrive(d);
@@ -355,7 +360,8 @@ const SCRIPT = `(() => {
   picker.addEventListener('change', () => {
     chosen = picker.value;
     const u = new URL(location.href);
-    if (chosen) u.searchParams.set('projeto', chosen); else u.searchParams.delete('projeto');
+    u.searchParams.delete('projeto');
+    if (chosen) u.searchParams.set('p', chosen); else u.searchParams.delete('p');
     history.replaceState(null, '', u);
     view = null; cards.clear(); groupsEl.clear(); shown = '';
     list.replaceChildren(el('p', { class: 'empty' }, 'Carregando…'));

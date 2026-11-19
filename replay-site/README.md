@@ -23,7 +23,7 @@ Abre na transmissão mais recente; no topo dá para escolher as anteriores. Fica
 |---|---|
 | `/` | página |
 | `/projetos` | transmissões (pastas dentro da pasta principal), mais recente primeiro |
-| `/drive?projeto=<id>` | pastas e vídeos de uma transmissão (sem `projeto`: a mais recente) |
+| `/drive?p=<id>` | pastas e vídeos de uma transmissão (sem `p`: a mais recente). A página aceita `/?p=<id>` |
 | `/d/<id>` | vídeo (com Range); `?baixar=1&nome=…` baixa. Só vídeos das pastas listadas |
 | `/saude` | verificação |
 

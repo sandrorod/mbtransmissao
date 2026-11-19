@@ -676,7 +676,7 @@ export function ReplayGalleryDialog({ onClose }: { onClose: () => void }) {
     void window.studio.driveProjectFolder(false).then(
       (info) => {
         const id = /\/folders\/([\w-]+)/.exec(info.url)?.[1];
-        setPublicUrl(id ? `${PUBLIC_REPLAY_URL}/?projeto=${id}` : PUBLIC_REPLAY_URL);
+        setPublicUrl(id ? `${PUBLIC_REPLAY_URL}/?p=${id}` : PUBLIC_REPLAY_URL);
         setPublicNote(id ? `Abre direto na transmissão “${info.project}”.` : null);
       },
       () => {
