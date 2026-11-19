@@ -96,7 +96,7 @@ function ReplayTime({ seconds, onChange }: { seconds: number; onChange: (s: numb
 
 const speedLabel = (v: number) => `${String(v).replace('.', ',')}x`;
 
-/** Velocidade dos replays (câmera lenta). Só os vídeos de replay; as vinhetas passam sempre em 1x. */
+/** Velocidade dos replays (câmera lenta ou acelerado). Só os vídeos de replay; as vinhetas passam sempre em 1x. */
 function ReplaySpeed({ speed, onChange }: { speed: number; onChange: (v: number) => void }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
@@ -116,7 +116,7 @@ function ReplaySpeed({ speed, onChange }: { speed: number; onChange: (v: number)
       <button
         type="button"
         className={`replay-chip ${open ? 'replay-chip-open' : ''}`}
-        data-tip={open ? undefined : `Velocidade dos replays: ${speedLabel(speed)}${speed < 1 ? ' (câmera lenta)' : ''}. As vinhetas passam sempre na velocidade normal.`}
+        data-tip={open ? undefined : `Velocidade dos replays: ${speedLabel(speed)}${speed < 1 ? ' (câmera lenta)' : speed > 1 ? ' (acelerado)' : ''}. As vinhetas passam sempre na velocidade normal.`}
         aria-label={`Velocidade dos replays: ${speedLabel(speed)}. Clique para alterar.`}
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
@@ -129,7 +129,7 @@ function ReplaySpeed({ speed, onChange }: { speed: number; onChange: (v: number)
             <strong>Velocidade dos replays</strong>
             <output>{speedLabel(speed)}</output>
           </span>
-          <span className="replay-time-presets">
+          <span className="replay-time-presets replay-speed-presets">
             {REPLAY_SPEEDS.map((v) => (
               <button key={v} type="button" className={`btn btn-small ${v === speed ? 'btn-on' : ''}`} onClick={() => { onChange(v); setOpen(false); }}>{speedLabel(v)}</button>
             ))}

@@ -686,6 +686,8 @@ button.replay-chip:hover { color: var(--text); border-color: var(--accent); }
 .replay-time-head output { font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 700; }
 .replay-time-presets { display: flex; gap: 4px; }
 .replay-time-presets .btn { flex: 1; justify-content: center; }
+/* Velocidade do replay: 6 opções em 2 linhas (lenta em cima; normal e acelerado embaixo). */
+.replay-speed-presets { display: grid; grid-template-columns: repeat(3, 1fr); }
 .replay-time-pop small { color: var(--muted); font-size: 8.8px; }
 
 /* Pastas de replay. */
