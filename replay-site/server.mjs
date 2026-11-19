@@ -46,11 +46,13 @@ async function children(parent, order = 'createdTime desc') {
 }
 
 const isVideo = (f) => typeof f.mimeType === 'string' && f.mimeType.startsWith('video/');
-// O Google recusa (403) o download de vídeo pedido do servidor (IP de datacenter) com chave de API, mas aceita
-// quando é o navegador de quem assiste que pede: a página toca e baixa direto do Drive, sem passar por aqui.
-// A chave aparece na página: ela só lê arquivos públicos e deve ficar restrita à Google Drive API.
-const mediaUrl = (id) => `${API}/files/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true&key=${encodeURIComponent(KEY)}`;
-const downloadUrl = (id) => `https://drive.google.com/uc?export=download&id=${encodeURIComponent(id)}`;
+// Vídeo e Baixar: link público de download do próprio Drive, pedido pelo navegador de quem assiste (sem chave).
+// O download pela API com chave (alt=media) é bloqueado pelo Google ("automated queries", 403) depois de poucos
+// usos — do servidor sempre, e até de navegadores. Este link aceita Range (avançar/voltar) e já manda o nome do
+// arquivo no Baixar. Arquivos grandes (> ~100 MB) passariam por um aviso de antivírus; os replays são pequenos.
+const USERCONTENT = 'https://drive.usercontent.google.com/download';
+const mediaUrl = (id) => `${USERCONTENT}?id=${encodeURIComponent(id)}&export=download`;
+const downloadUrl = mediaUrl;
 const video = (f) => ({
   id: f.id,
   src: mediaUrl(f.id),
@@ -163,7 +165,7 @@ const server = http.createServer(async (req, res) => {
         ...SECURITY,
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self' https://www.googleapis.com; img-src 'self' data:",
+        'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self' https://drive.usercontent.google.com; img-src 'self' data:",
       });
       return void res.end(HTML);
     }
