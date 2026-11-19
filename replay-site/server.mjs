@@ -177,7 +177,8 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     console.error('[replay-site]', e);
     if (res.headersSent) return void res.destroy();
-    json(res, 502, { available: false, error: e instanceof Error ? e.message : String(e) });
+    // 200 com o motivo: o proxy do Easypanel troca respostas 5xx por uma página genérica dele (o motivo sumia)
+    json(res, 200, { available: false, error: e instanceof Error ? e.message : String(e) });
   }
 });
 
