@@ -55,7 +55,8 @@ const video = (f) => ({
   id: f.id,
   src: mediaUrl(f.id),
   download: downloadUrl(f.id),
-  name: f.name.replace(/\.(mp4|mov|m4v|webm)$/i, ''),
+  // Sem extensão e sem a data/hora que o Estúdio colocava no nome (" · 18-11-2026 23-01-49"): ela já aparece embaixo
+  name: f.name.replace(/\.(mp4|mov|m4v|webm)$/i, '').replace(/\s*·\s*\d{1,2}-\d{1,2}-\d{2,4}\s+\d{1,2}-\d{2}(-\d{2})?$/, ''),
   bytes: Number(f.size ?? 0),
   createdAt: f.createdTime ? Date.parse(f.createdTime) : 0,
   seconds: f.videoMediaMetadata?.durationMillis ? Number(f.videoMediaMetadata.durationMillis) / 1000 : null,

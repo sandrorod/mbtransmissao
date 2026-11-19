@@ -227,13 +227,11 @@ async function projectName(): Promise<string> {
   return typeof raw?.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 100) : 'Projeto';
 }
 
-/** Monta o que vai para o Drive: arquivo, nome (o mesmo da lista + data e hora do corte) e pasta do replay. */
+/** Monta o que vai para o Drive: arquivo, nome (o mesmo da lista, sem data/hora: o Drive já guarda quando foi criado) e pasta do replay. */
 async function driveItems(items: { id: string; name?: string | null; folder?: string | null }[]): Promise<{ path: string; name: string; folder: string | null }[]> {
   return items.map((it) => {
     const ext = extname(it.id) || '.mp4';
-    const when = /replay-(\d{10,})/.exec(it.id);
-    const date = when ? new Date(Number(when[1])).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'medium' }).replace(/[/:]/g, '-').replace(',', '') : '';
-    return { path: replay.path(it.id), name: `${it.name?.trim() ? it.name.trim().slice(0, 120) : 'Replay'}${date ? ` · ${date}` : ''}${ext}`, folder: it.folder?.trim() ? it.folder.trim().slice(0, 100) : null };
+    return { path: replay.path(it.id), name: `${it.name?.trim() ? it.name.trim().slice(0, 120) : 'Replay'}${ext}`, folder: it.folder?.trim() ? it.folder.trim().slice(0, 100) : null };
   });
 }
 
