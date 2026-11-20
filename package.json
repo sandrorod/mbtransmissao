@@ -39,7 +39,7 @@
   },
   "build": {
     "appId": "br.com.estudioaovivo.app",
-    "productName": "Estúdio ao Vivo",
+    "productName": "Estudio ao Vivo",
     "artifactName": "Estudio-ao-Vivo-${version}-mac.${ext}",
     "directories": {
       "output": "dist",
@@ -69,7 +69,8 @@
         "NSCameraUsageDescription": "O Estúdio ao Vivo usa a câmera para mostrar e transmitir a imagem.",
         "NSMicrophoneUsageDescription": "O Estúdio ao Vivo usa o microfone para levar o som à transmissão.",
         "NSLocalNetworkUsageDescription": "O Estúdio ao Vivo recebe a imagem dos celulares conectados pela rede Wi-Fi.",
-        "NSAudioCaptureUsageDescription": "O Estúdio ao Vivo captura o som das páginas e mídias da transmissão."
+        "NSAudioCaptureUsageDescription": "O Estúdio ao Vivo captura o som das páginas e mídias da transmissão.",
+        "CFBundleDisplayName": "Estúdio ao Vivo"
       }
     },
     "dmg": {

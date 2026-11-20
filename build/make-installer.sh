@@ -15,7 +15,11 @@ rm -rf dist
 # 1) app universal (sem dmg) 2) assinatura local (sem ela o Mac com chip Apple diz que o app está "danificado")
 # 3) dmg com o app já assinado
 env -u ELECTRON_RUN_AS_NODE npx electron-builder --mac dir --universal -c.mac.identity=null
-APP="dist/mac-universal/Estúdio ao Vivo.app"
+# Nome do pacote SEM acento: o Electron monta o caminho dos auxiliares (Helper) a partir do CFBundleName e
+# confere byte a byte com o caminho real no disco. Com "ú" o disco guarda u + acento (NFD) e o Info.plist
+# "ú" (NFC): os bytes diferem e o Electron fecha o app ao abrir ("unexpected helper executable").
+# O nome com acento aparece só como CFBundleDisplayName.
+APP="dist/mac-universal/Estudio ao Vivo.app"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 env -u ELECTRON_RUN_AS_NODE npx electron-builder --mac dmg --universal --prepackaged "$APP" -c.mac.identity=null
