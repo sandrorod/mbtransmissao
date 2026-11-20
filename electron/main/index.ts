@@ -58,7 +58,12 @@ let live: LiveSession | null = null;
 let tunnels: Tunnel[] = [];
 /** Acompanha a situação da live no YouTube enquanto transmite. */
 let youtubeWatch: ReturnType<typeof setInterval> | null = null;
-let liveLog: (line: string) => void = () => undefined;
+/**
+ * Registro de diagnóstico. Fora de uma transmissão vai para <dados do app>/inicio.log (abertura do app,
+ * busca de câmeras); durante a transmissão passa a ser o transmissao.log.
+ */
+let liveLog: (line: string) => void = (line) =>
+  void appendFile(join(app.getPath('userData'), 'inicio.log'), `${new Date().toISOString()} ${line}\n`, 'utf8').catch(() => undefined);
 /** Número da sessão atual: pedaços de vídeo de uma sessão anterior (ainda na fila) são descartados. */
 let liveSessionId = 0;
 /** Live do YouTube usada na transmissão atual (para encerrar lá, se o operador pedir). */
@@ -1039,8 +1044,17 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
     if (process.platform === 'darwin') {
-      await systemPreferences.askForMediaAccess('camera').catch(() => false);
-      await systemPreferences.askForMediaAccess('microphone').catch(() => false);
+      // Com prazo: se o pedido do macOS não aparecer ou ficar sem resposta, a janela abre mesmo assim (antes o
+      // app ficava rodando sem janela). O pedido continua valendo e pode ser respondido depois.
+      const ask = (kind: 'camera' | 'microphone') => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        return Promise.race([
+          systemPreferences.askForMediaAccess(kind).catch(() => false),
+          new Promise<boolean>((r) => { timer = setTimeout(() => { liveLog(`abertura: permissão de ${kind} sem resposta em 20 s, abrindo a janela`); r(false); }, 20_000); }),
+        ]).finally(() => clearTimeout(timer));
+      };
+      await ask('camera');
+      await ask('microphone');
     }
     if (LOCAL_ONLY) {
       destinations = new DestinationStore(userFile('destinos.json'));

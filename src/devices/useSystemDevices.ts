@@ -4,8 +4,20 @@ import { pool } from './pool';
 
 const KINDS = new Set(['videoinput', 'audioinput', 'audiooutput']);
 
+/** Nenhuma etapa da busca pode prender a tela: depois do prazo segue sem ela (e registra o motivo). */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what}: sem resposta em ${ms / 1000} s`)), ms);
+    promise.then((v) => { clearTimeout(timer); resolve(v); }, (e) => { clearTimeout(timer); reject(e); });
+  });
+}
+
+const log = (text: string) => {
+  try { window.studio?.liveLog?.(`aparelhos: ${text}`); } catch { /* sem registro */ }
+};
+
 async function readDevices(): Promise<SystemDevice[]> {
-  const list = await navigator.mediaDevices.enumerateDevices();
+  const list = await withTimeout(navigator.mediaDevices.enumerateDevices(), 8000, 'lista de aparelhos');
   return list.filter((d) => KINDS.has(d.kind)).map((d) => ({ deviceId: d.deviceId, groupId: d.groupId, label: d.label, kind: d.kind as SystemDevice['kind'] }));
 }
 
@@ -15,11 +27,16 @@ async function readDevices(): Promise<SystemDevice[]> {
  */
 async function unlockLabels(): Promise<void> {
   for (const constraints of [{ video: true }, { audio: true }] as MediaStreamConstraints[]) {
+    // Com prazo: câmera ocupada por outro app ou pedido de permissão sem resposta prendiam a tela em
+    // "Procurando câmeras…" para sempre. Se a captura chegar depois do prazo, é fechada na hora.
+    const request = navigator.mediaDevices.getUserMedia(constraints);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await withTimeout(request, 6000, constraints.video ? 'câmera' : 'microfone');
       stream.getTracks().forEach((t) => t.stop());
-    } catch {
+    } catch (e) {
       // Sem câmera (ou sem permissão) a lista continua; o painel de permissões avisa.
+      log(String(e instanceof Error ? e.message : e));
+      void request.then((s) => s.getTracks().forEach((t) => t.stop()), () => undefined);
     }
   }
 }
@@ -69,6 +86,10 @@ export function useSystemDevices(onChange: (changes: DeviceChanges, devices: Sys
         const changes = diffDevices(before, list);
         if (changes.added.length || changes.removed.length) latest.current(changes, list);
       }
+      setReady(true);
+    } catch (e) {
+      // Um erro na busca não pode deixar a tela parada: segue com o que tiver e tenta de novo em 4 s.
+      log(`erro na busca: ${e instanceof Error ? e.message : String(e)}`);
       setReady(true);
     } finally {
       busy.current = false;

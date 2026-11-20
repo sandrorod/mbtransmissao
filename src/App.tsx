@@ -28,6 +28,7 @@ import { LiveController } from './program/live';
 import { liveStore, sameLiveCore, useLiveMetrics } from './program/liveStore';
 import { DEFAULT_AUDIO, DEFAULT_LAYOUT, isYoutubeDestination, DEFAULT_VIDEO, EMPTY_PREFERENCES, OUTPUT_PRESETS, PANEL_IDS, ROLES, type AccountView, type Border, type DeviceKind, type Layout, type PanelColumn, type PanelId, type DeviceRef, type LiveExtras, type LiveStatus, type MediaAccess, type Preferences, type Project, type SceneItem, type Source, type Transform, type VideoMode, type WebPage } from './types/studio';
 import { addToScene, createProject, ensureSource, findSource, isVirtualDevice, missingDevices, newId, realDevices, refOf, removeDeviceSources, removeSource, replaceDevice, updateDeviceIds, type MissingItem } from './utils/project';
+import { validatePreferences } from './utils/validate';
 
 const api = () => window.studio;
 const IDLE: LiveStatus = { state: 'parado', startedAt: null, fps: 0, kbps: 0, message: null, destinations: [] };
@@ -292,7 +293,11 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
 
   useEffect(() => {
     void api().mediaAccess().then(setAccess);
-    void Promise.all([api().loadProject(), api().loadPreferences()]).then(([p, pr]) => setStored({ project: p, prefs: pr }));
+    // Se a leitura falhar, abre com projeto novo e preferências padrão (antes a tela ficava em "Procurando…")
+    void Promise.all([
+      api().loadProject().catch((e) => { window.studio.liveLog(`abertura: projeto não lido (${String(e)})`); return null; }),
+      api().loadPreferences().catch((e) => { window.studio.liveLog(`abertura: preferências não lidas (${String(e)})`); return validatePreferences(undefined); }),
+    ]).then(([p, pr]) => setStored({ project: p, prefs: pr }));
     return api().onLiveStatus(() => undefined);
   }, []);
 
