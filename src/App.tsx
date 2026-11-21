@@ -1431,7 +1431,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         />
       )}
       {expanded && (
-        <AreaPopup title={expanded === 'programa' ? 'Programa' : PANEL_NAMES[expanded]} onClose={() => setExpanded(null)}>
+        <AreaPopup key={expanded} title={expanded === 'programa' ? 'Programa' : PANEL_NAMES[expanded]} startFull={expanded === 'programa'} onClose={() => setExpanded(null)}>
           {expanded === 'programa' ? programPanel : panels[expanded]}
         </AreaPopup>
       )}
@@ -1461,8 +1461,17 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
 /**
  * Uma área do layout aberta numa janela flutuante: arrasta pelo título, muda de tamanho pelo canto e deixa o
  * resto do layout livre (dá para ir buscando elementos enquanto ela está aberta). Esc ou o botão devolvem a área.
+ * "Tela inteira" ocupa a janela toda do app (o Programa já abre assim: no layout ele é maior que a janela
+ * flutuante, e ampliar não podia diminuir a imagem).
  */
-function AreaPopup({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function AreaPopup({ title, onClose, startFull = false, children }: { title: string; onClose: () => void; startFull?: boolean; children: ReactNode }) {
+  const [full, setFull] = useState(startFull);
+  const [, setViewport] = useState(0);
+  useEffect(() => {
+    const onResize = () => setViewport((n) => n + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [box, setBox] = useState(() => {
     const w = Math.round(Math.min(window.innerWidth * 0.62, 1200));
     const h = Math.round(Math.min(window.innerHeight * 0.7, 820));
@@ -1478,6 +1487,7 @@ function AreaPopup({ title, onClose, children }: { title: string; onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
   const start = (mode: 'move' | 'size') => (e: React.PointerEvent<HTMLElement>) => {
+    if (full) return;
     if (e.button !== 0 || (mode === 'move' && (e.target as HTMLElement).closest('button'))) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1497,14 +1507,17 @@ function AreaPopup({ title, onClose, children }: { title: string; onClose: () =>
   };
   const end = () => { drag.current = null; };
   return (
-    <div className="area-popup" role="dialog" aria-label={title} style={{ left: box.x, top: box.y, width: box.w, height: box.h }}>
-      <div className="area-popup-bar" onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end}>
-        <GripHorizontal size={14} />
+    <div className={`area-popup ${full ? 'area-popup-full' : ''}`} role="dialog" aria-label={title} style={full ? { left: 8, top: 8, width: window.innerWidth - 16, height: window.innerHeight - 16 } : { left: box.x, top: box.y, width: box.w, height: box.h }}>
+      <div className="area-popup-bar" onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button')) setFull(!full); }}>
+        {!full && <GripHorizontal size={14} />}
         <span className="area-popup-title">{title}</span>
+        <button type="button" className="btn btn-small" onClick={() => setFull(!full)} aria-pressed={full} data-tip={full ? 'Volta para a janela flutuante (dá para mover e mudar o tamanho)' : 'Ocupa a janela toda do app (ou dois cliques no título)'}>
+          {full ? <><Minimize2 size={13} /> Janela</> : <><Maximize2 size={13} /> Tela inteira</>}
+        </button>
         <button type="button" className="btn btn-small" onClick={onClose} data-tip="Devolve a área ao layout (Esc)"><Minimize2 size={13} /> Voltar ao layout</button>
       </div>
       <div className="area-popup-body">{children}</div>
-      <div className="area-popup-resize" aria-label="Mudar o tamanho da janela" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />
+      {!full && <div className="area-popup-resize" aria-label="Mudar o tamanho da janela" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />}
     </div>
   );
 }
