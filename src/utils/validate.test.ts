@@ -139,3 +139,21 @@ describe('vinhetas do replay', () => {
   });
 });
 
+
+describe('estilo das mídias', () => {
+  const id = '11111111-1111-4111-8111-111111111111';
+  const look = { border: { style: 'neon', color: '#2EC4B6', width: 6 }, radius: 24, shadow: { color: '#000000', blur: 30, distance: 10 }, opacity: 0.8, effects: { brightness: 110, contrast: 100, saturation: 100, grayscale: 0, sepia: 0, hue: 0, blur: 0 } };
+  const base = { ...v1, media: [{ id, name: 'Logo', ext: 'png', loop: true, audio: false, look }, { id: id.replace(/1/g, '2'), name: 'Sem', ext: 'jpg', loop: true, audio: false }], mediaLook: { ...look, radius: 0 } };
+
+  it('guarda o estilo de cada mídia e o de todas ao reabrir', () => {
+    const p = validateProject(base);
+    expect(p.media?.[0].look).toEqual({ ...look, border: { ...look.border, color: '#2ec4b6' } });
+    expect(p.media?.[1].look).toBeUndefined();
+    expect(p.mediaLook?.radius).toBe(0);
+  });
+
+  it('corrige valores inválidos e não aceita "sombra" como borda', () => {
+    const p = validateProject({ ...base, media: [{ ...base.media[0], look: { border: { style: 'sombra' }, radius: 999, opacity: 7, shadow: { color: 'x' }, effects: { blur: -3, hue: 90 } } }] });
+    expect(p.media?.[0].look).toEqual({ border: null, radius: 0, shadow: { color: '#000000', blur: 20, distance: 8 }, opacity: 1, effects: { brightness: 100, contrast: 100, saturation: 100, grayscale: 0, sepia: 0, hue: 90, blur: 0 } });
+  });
+});

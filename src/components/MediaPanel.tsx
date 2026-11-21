@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from 'react';
-import { Eye, EyeOff, Image as ImageIcon, Pause, Play, Plus, Repeat, RotateCcw, Square, Trash2, Upload, Video, Volume2, VolumeX } from 'lucide-react';
+import { Eye, EyeOff, Image as ImageIcon, Palette, Pause, Play, Plus, Repeat, RotateCcw, Square, Trash2, Upload, Video, Volume2, VolumeX } from 'lucide-react';
 import { mediaPlayers } from '../devices/mediaPlayers';
 import { pool } from '../devices/pool';
 import type { MediaItem } from '../types/studio';
@@ -18,6 +18,10 @@ interface Props {
   onStop: (item: MediaItem) => void;
   onChange: (item: MediaItem) => void;
   onRemove: (item: MediaItem) => void;
+  /** Abre o estilo das mídias (bordas, sombra, cantos, efeitos) já com estas escolhidas (vazio = todas). */
+  onStyle: (mediaIds: string[]) => void;
+  /** Há um estilo para todas as mídias. */
+  hasDefaultLook: boolean;
   selected: Set<string>;
   onSelect: (ids: string[], on: boolean) => void;
   group: GroupActions;
@@ -26,7 +30,7 @@ interface Props {
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 /** Área Mídias: fotos e vídeos do computador para exibir na transmissão. */
-export function MediaPanel({ media, previewIds, inProgram, onImport, onPreview, onAdd, onStop, onChange, onRemove, selected, onSelect, group }: Props) {
+export function MediaPanel({ media, previewIds, inProgram, onImport, onPreview, onAdd, onStop, onChange, onRemove, onStyle, hasDefaultLook, selected, onSelect, group }: Props) {
   useSyncExternalStore(mediaPlayers.subscribe, mediaPlayers.getVersion);
   useSyncExternalStore(pool.subscribe, pool.getVersion);
   const [open, setOpen] = useState<string | null>(null);
@@ -36,6 +40,14 @@ export function MediaPanel({ media, previewIds, inProgram, onImport, onPreview, 
       <header className="panel-head">
         <h2 className="panel-title">Mídias</h2>
         <span className="panel-head-actions">
+          {media.length > 0 && (() => {
+            const picked = media.filter((m) => selected.has(`midia:${m.id}`)).map((m) => m.id);
+            return (
+              <button type="button" className={`btn btn-small ${hasDefaultLook ? 'btn-on' : ''}`} onClick={() => onStyle(picked)} data-tip={picked.length ? `Borda, sombra, cantos e efeitos das ${picked.length} mídias marcadas` : 'Borda, sombra, cantos e efeitos: para todas as mídias (inclusive as próximas) ou só para algumas'}>
+                <Palette size={13} /> Estilo
+              </button>
+            );
+          })()}
           <button type="button" className="btn btn-small btn-primary" onClick={onImport} data-tip="Foto (JPG, PNG, GIF, WebP) ou vídeo (MP4, MOV, WebM)"><Upload size={13} /> Carregar foto ou vídeo</button>
         </span>
       </header>
@@ -65,6 +77,7 @@ export function MediaPanel({ media, previewIds, inProgram, onImport, onPreview, 
                     <span className="device-icon">{video ? <Video size={15} /> : <ImageIcon size={15} />}</span>
                     <strong className="device-title">{item.name}</strong>
                     {inProgram.has(item.id) && <span className="media-onair" title="Está na cena no ar">no ar</span>}
+                    {item.look && <span className="look-own" title="Tem estilo próprio (não segue o estilo de todas as mídias)">estilo</span>}
                     {/* O status só aparece quando há problema (o espaço fica para o nome). */}
                     {status === 'falhou' && <StatusTag status={status} />}
                   </button>
@@ -102,6 +115,7 @@ export function MediaPanel({ media, previewIds, inProgram, onImport, onPreview, 
                       </button>
                       <button type="button" className="btn btn-small" onClick={() => onAdd(item)}><Plus size={13} /> Adicionar à cena</button>
                       <span className="device-actions-right">
+                        <button type="button" className={`icon-btn ${item.look ? 'icon-btn-on' : ''}`} aria-label={`Estilo de ${item.name}`} data-tip="Borda, sombra, cantos e efeitos desta mídia" onClick={() => onStyle([item.id])}><Palette size={14} /></button>
                         {video && <button type="button" className={`icon-btn ${item.loop ? 'icon-btn-on' : ''}`} aria-pressed={item.loop} aria-label="Repetir" data-tip={item.loop ? 'Repetindo: clique para parar no fim' : 'Clique para repetir sem parar'} onClick={() => onChange({ ...item, loop: !item.loop })}><Repeat size={14} /></button>}
                         {video && <button type="button" className={`icon-btn ${item.audio ? 'icon-btn-on' : ''}`} aria-pressed={item.audio} aria-label="Som do vídeo" data-tip={item.audio ? 'Com som (no mixer)' : 'Sem som'} onClick={() => onChange({ ...item, audio: !item.audio })}>{item.audio ? <Volume2 size={14} /> : <VolumeX size={14} />}</button>}
                         <button type="button" className="icon-btn icon-btn-remove" aria-label={`Remover ${item.name}`} data-tip="Remover" onClick={() => onRemove(item)}><Trash2 size={14} /></button>

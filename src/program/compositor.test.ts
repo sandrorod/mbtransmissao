@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_VIDEO, type VideoSettings } from '../types/studio';
-import { centerTransform, contentZoom, fillTransform, stretchTransform, snapToCenterY, panRegion, setContentZoom, snapToCenterX, placement, sourceRect, toTransform, visibleArea, zoomRegion } from './compositor';
+import { effectsFilter, centerTransform, contentZoom, fillTransform, stretchTransform, snapToCenterY, panRegion, setContentZoom, snapToCenterX, placement, sourceRect, toTransform, visibleArea, zoomRegion } from './compositor';
 
 const frame = { w: 1920, h: 1080 };
 const canvas = { w: 1920, h: 1080 };
@@ -169,5 +169,12 @@ describe('widget: borda aumenta a moldura sem mudar o conteúdo', () => {
   it('guia do centro na altura', () => {
     expect(snapToCenterY(385, 300, 1080, 10)).toEqual({ y: 390, snapped: true });
     expect(snapToCenterY(300, 300, 1080, 10)).toEqual({ y: 300, snapped: false });
+  });
+});
+
+describe('efeitos das mídias', () => {
+  it('só põe no filtro o que mudou', () => {
+    expect(effectsFilter({ brightness: 100, contrast: 100, saturation: 100, grayscale: 0, sepia: 0, hue: 0, blur: 0 })).toBe('');
+    expect(effectsFilter({ brightness: 120, contrast: 100, saturation: 0, grayscale: 100, sepia: 0, hue: -30, blur: 10 }, 0.5)).toBe('brightness(120%) saturate(0%) grayscale(100%) hue-rotate(-30deg) blur(5.00px)');
   });
 });

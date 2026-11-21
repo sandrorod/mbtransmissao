@@ -1,4 +1,4 @@
-import { type ChromaKey, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../types/studio';
+import { type ChromaKey, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, type MediaLook, DEFAULT_MEDIA_EFFECTS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../types/studio';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown, max = 300) => typeof v === 'string' && v.length <= max;
@@ -103,6 +103,33 @@ export function borderOf(v: unknown): Border | null {
   };
 }
 
+const hex = (v: unknown, fallback: string) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : fallback);
+const inRange = (v: unknown, min: number, max: number, fallback: number) => (num(v, min, max) ? (v as number) : fallback);
+
+/** Estilo de mídia: campos inválidos voltam ao normal; sem objeto = sem estilo (undefined). */
+export function mediaLookOf(v: unknown): MediaLook | undefined {
+  if (!isObject(v)) return undefined;
+  const b = isObject(v.border) && typeof v.border.style === 'string' && v.border.style in BORDER_STYLES && v.border.style !== 'sombra' ? v.border : null;
+  const s = isObject(v.shadow) ? v.shadow : null;
+  const e = isObject(v.effects) ? v.effects : {};
+  const d = DEFAULT_MEDIA_EFFECTS;
+  return {
+    border: b ? { style: b.style as Border['style'], color: hex(b.color, '#ffffff'), width: Math.round(inRange(b.width, 1, 40, 6)) } : null,
+    radius: Math.round(inRange(v.radius, 0, 200, 0)),
+    shadow: s ? { color: hex(s.color, '#000000'), blur: Math.round(inRange(s.blur, 0, 80, 20)), distance: Math.round(inRange(s.distance, 0, 60, 8)) } : null,
+    opacity: inRange(v.opacity, 0.05, 1, 1),
+    effects: {
+      brightness: inRange(e.brightness, 0, 200, d.brightness),
+      contrast: inRange(e.contrast, 0, 200, d.contrast),
+      saturation: inRange(e.saturation, 0, 200, d.saturation),
+      grayscale: inRange(e.grayscale, 0, 100, d.grayscale),
+      sepia: inRange(e.sepia, 0, 100, d.sepia),
+      hue: inRange(e.hue, -180, 180, d.hue),
+      blur: inRange(e.blur, 0, 30, d.blur),
+    },
+  };
+}
+
 /** Posição de antes do "Tela cheia" (inválida = esquece, a fonte fica como está). */
 function fillOf(v: unknown): { fill?: { before: Transform | null } } {
   if (!isObject(v)) return {};
@@ -173,9 +200,11 @@ export function validateProject(value: unknown): Project {
     const ext = m.ext.toLowerCase();
     const kind = (IMAGE_EXTENSIONS as readonly string[]).includes(ext) ? 'imagem' : (VIDEO_EXTENSIONS as readonly string[]).includes(ext) ? 'video' : null;
     if (!kind) return [];
-    return [{ id: m.id, name: m.name as string, ext, kind, loop: m.loop !== false, audio: m.audio !== false }];
+    const look = mediaLookOf(m.look);
+    return [{ id: m.id, name: m.name as string, ext, kind, loop: m.loop !== false, audio: m.audio !== false, ...(look ? { look } : {}) }];
   }).slice(0, 300);
   return { version: 1, name: value.name as string, sources, scenes, activeSceneId: active, roles, monitorOutput: deviceRef(value.monitorOutput), pages, widgetFolders, media,
+    ...(mediaLookOf(value.mediaLook) ? { mediaLook: mediaLookOf(value.mediaLook) } : {}),
     preview: (Array.isArray(value.preview) ? value.preview : []).filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= 300).slice(0, 60) };
 }
 

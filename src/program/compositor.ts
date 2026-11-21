@@ -1,4 +1,4 @@
-import { NO_CROP, type Border, type ChromaKey, type Transform, type VideoSettings } from '../types/studio';
+import { NO_CROP, type Border, type ChromaKey, type MediaEffects, type MediaLook, type Transform, type VideoSettings } from '../types/studio';
 import { ChromaKeyer } from './chroma';
 import { FrameReader } from './frames';
 
@@ -221,6 +221,39 @@ export interface Layer {
   chroma?: ChromaKey | null;
   /** Borda em volta da fonte. */
   border?: Border | null;
+  /** Estilo de mídia: cantos, sombra, opacidade e efeitos (a borda dele já vem em `border`). */
+  look?: MediaLook | null;
+}
+
+/** Filtro de canvas/CSS dos efeitos ('' = nenhum). blurScale converte o desfoque (px 1080p) para a tela. */
+export function effectsFilter(e: MediaEffects, blurScale = 1): string {
+  const parts: string[] = [];
+  if (e.brightness !== 100) parts.push(`brightness(${e.brightness}%)`);
+  if (e.contrast !== 100) parts.push(`contrast(${e.contrast}%)`);
+  if (e.saturation !== 100) parts.push(`saturate(${e.saturation}%)`);
+  if (e.grayscale > 0) parts.push(`grayscale(${e.grayscale}%)`);
+  if (e.sepia > 0) parts.push(`sepia(${e.sepia}%)`);
+  if (e.hue !== 0) parts.push(`hue-rotate(${e.hue}deg)`);
+  if (e.blur > 0) parts.push(`blur(${(e.blur * blurScale).toFixed(2)}px)`);
+  return parts.join(' ');
+}
+
+/**
+ * Sombra projetada de um retângulo (cantos arredondados) sem o retângulo: a forma é desenhada fora da tela e só a
+ * sombra é deslocada para o lugar (mídia semitransparente não ganha fundo preto).
+ */
+function dropShadow(ctx: CanvasRenderingContext2D, dest: Rect, radius: number, shadow: NonNullable<MediaLook['shadow']>, scale: number): void {
+  const far = 100000;
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.shadowColor = shadow.color;
+  ctx.shadowBlur = shadow.blur * scale;
+  ctx.shadowOffsetX = far + shadow.distance * scale;
+  ctx.shadowOffsetY = shadow.distance * scale;
+  ctx.fillStyle = '#000';
+  roundedPath(ctx, { ...dest, x: dest.x - far }, radius);
+  ctx.fill();
+  ctx.restore();
 }
 
 /** Retângulo com cantos arredondados (r já limitado à metade do lado menor). */
@@ -608,9 +641,26 @@ export class Compositor {
       const w = sideways ? dest.h : dest.w;
       const h = sideways ? dest.w : dest.h;
       const border = layer.border ?? null;
+      const look = layer.look ?? null;
       const scale = canvas.h / 1080;
-      if (border) {
+      const styled = Boolean(border || look);
+      // Cantos: os da borda (se houver) ou os do estilo da mídia.
+      const radius = border ? border.radius : look?.radius ?? 0;
+      if (styled) {
         ctx.save();
+        if (look && look.opacity < 1) ctx.globalAlpha = look.opacity;
+        if (look?.shadow) {
+          // Com cantos: sombra da forma arredondada. Sem cantos: sombra do contorno da própria imagem (PNG transparente).
+          if (radius > 0) dropShadow(ctx, dest, radius * scale, look.shadow, scale);
+          else {
+            ctx.shadowColor = look.shadow.color;
+            ctx.shadowBlur = look.shadow.blur * scale;
+            ctx.shadowOffsetX = look.shadow.distance * scale;
+            ctx.shadowOffsetY = look.shadow.distance * scale;
+          }
+        }
+      }
+      if (border) {
         // Sombra: sem cantos arredondados ela segue o contorno da própria imagem (PNG transparente não ganha caixa preta).
         if (border.style === 'sombra' && border.radius > 0) drawShadow(ctx, dest, border, scale);
         else if (border.style === 'sombra') {
@@ -620,24 +670,33 @@ export class Compositor {
           ctx.shadowOffsetX = lw;
           ctx.shadowOffsetY = lw;
         }
+      }
+      if (styled) {
         // Cantos arredondados: a imagem é recortada no mesmo formato da borda.
-        if (border.radius > 0) {
+        if (radius > 0) {
           ctx.setTransform(1, 0, 0, 1, 0, 0);
-          roundedPath(ctx, dest, border.radius * scale);
+          roundedPath(ctx, dest, radius * scale);
           ctx.clip();
           ctx.translate(dest.x + dest.w / 2, dest.y + dest.h / 2);
           ctx.rotate((rotation * Math.PI) / 180);
           ctx.scale(layer.settings?.mirror ? -1 : 1, 1);
         }
+        const filter = look ? effectsFilter(look.effects, scale) : '';
+        if (filter) ctx.filter = filter;
       }
       try {
         ctx.drawImage(image, src.x, src.y, src.w, src.h, -w / 2, -h / 2, w, h);
       } catch {
         // Quadro indisponível por um instante (troca de câmera): a camada some só nesse quadro.
       }
-      if (border) {
+      if (styled) {
         ctx.restore();
-        drawBorder(ctx, dest, border, scale);
+        if (border) {
+          ctx.save();
+          if (look && look.opacity < 1) ctx.globalAlpha = look.opacity;
+          drawBorder(ctx, dest, border, scale);
+          ctx.restore();
+        }
       }
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);

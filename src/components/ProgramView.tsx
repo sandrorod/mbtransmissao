@@ -3,7 +3,7 @@ import { Crop, Expand, Square, Eye, EyeOff, Hand, LocateFixed, LockKeyhole, Thum
 import { displayName } from '../devices/identify';
 import { usePooledStream } from '../devices/pool';
 import { centerTransform, contentZoom, extendRegion, fillTransform, panRegion, placement, setContentZoom, snapToCenterX, snapToCenterY, toTransform, visibleArea, zoomRegion, type Compositor, type Rect } from '../program/compositor';
-import { BORDER_STYLES, DEFAULT_BORDER, NO_CROP, type Border, type BorderStyle, type LiveExtras, type LiveStatus, type OutputSettings, type ProgramHud, type SceneItem, type Source, type Transform, type WebPage } from '../types/studio';
+import { BORDER_STYLES, DEFAULT_BORDER, NO_CROP, type Border, type BorderStyle, type LiveExtras, type MediaLook, type LiveStatus, type OutputSettings, type ProgramHud, type SceneItem, type Source, type Transform, type WebPage } from '../types/studio';
 import { useLiveMetrics } from '../program/liveStore';
 import { videoSpecOf } from './DevicesPanel';
 
@@ -185,6 +185,13 @@ function BorderMenu({ border, disabled, onChange }: { border: Border | null; dis
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
+/** Estilo de cada mídia (pelo id de dispositivo "midia:<id>"): a borda dele e o resto (cantos, sombra, efeitos). */
+export type MediaStyles = Map<string, { border: Border | null; look: MediaLook }>;
+
+/** Tela (Programa ou Prévia) em que se clicou por último: só ela responde às setas. Nenhuma ainda = o Programa. */
+let arrowsOwner: object | null = null;
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
 interface Props {
   compositor: Compositor;
   items: SceneItem[];
@@ -213,10 +220,12 @@ interface Props {
   viewOnly?: boolean;
   /** Prévia: tira a fonte selecionada da prévia. */
   onRemove?: (sourceId: string) => void;
+  /** Estilo das mídias (borda, cantos, sombra, efeitos). */
+  mediaStyles?: MediaStyles;
 }
 
 /** Programa: a imagem real que vai ao ar, com as alças para posicionar, redimensionar e cortar cada fonte. */
-export function ProgramView({ compositor, items, sources, pages, selectedId, onSelect, onTransform, onToggleHidden, onPageRegion, live, output, extras, hud, onHud, lockedIds, onToggleFill, onBorder, editor = false, viewOnly = false, onRemove }: Props) {
+export function ProgramView({ compositor, items, sources, pages, selectedId, onSelect, onTransform, onToggleHidden, onPageRegion, live, output, extras, hud, onHud, lockedIds, onToggleFill, onBorder, editor = false, viewOnly = false, onRemove, mediaStyles }: Props) {
   /** Modo "mover conteúdo": arrastar dentro do widget anda com a página, não com a moldura. */
   const [contentMode, setContentMode] = useState(false);
   /** Linhas do centro: aparecem enquanto o centro da fonte arrastada está alinhado ao centro da tela (x = linha em pé, y = deitada). */
@@ -242,7 +251,9 @@ export function ProgramView({ compositor, items, sources, pages, selectedId, onS
     compositor.setLayers(videoItems.map((item) => {
       const source = sourceOf(item.sourceId);
       const page = pageOf(source);
-      return { id: item.sourceId, track: videos.current.get(item.sourceId)?.track ?? null, settings: source.video, transform: item.transform, hidden: item.hidden, region: page?.region ?? null, chroma: page?.chroma ?? null, border: item.border ?? null };
+      // Mídia: a borda posta no Programa (menu Borda) vale mais que a do estilo da mídia.
+      const style = mediaStyles?.get(source.device.deviceId);
+      return { id: item.sourceId, track: videos.current.get(item.sourceId)?.track ?? null, settings: source.video, transform: item.transform, hidden: item.hidden, region: page?.region ?? null, chroma: page?.chroma ?? null, border: item.border ?? style?.border ?? null, look: style?.look ?? null };
     }));
   });
 
@@ -403,8 +414,35 @@ export function ProgramView({ compositor, items, sources, pages, selectedId, onS
   const selectedFrame = selected ? compositor.sizes.get(selected.sourceId) : undefined;
   const pct = (v: number, total: number) => `${(v / total) * 100}%`;
 
+  // Setas: movem a fonte selecionada 1 pixel da transmissão (Shift: 10). Lê sempre o estado mais novo.
+  const me = useRef({}).current;
+  const nudge = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  nudge.current = (e) => {
+    const dir = ARROWS[e.key];
+    if (!dir || viewOnly || e.metaKey || e.ctrlKey || e.altKey) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable)) return;
+    if (document.querySelector('[data-modal]')) return;
+    if (arrowsOwner ? arrowsOwner !== me : editor) return;
+    if (!selected || lockedIds.has(selected.sourceId)) return;
+    const rect = rectOf(selected);
+    if (!rect) return;
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    const t0 = selected.transform ?? toTransform(rect, canvas);
+    onTransform(selected.sourceId, { ...t0, x: t0.x + (dir[0] * step) / canvas.w, y: t0.y + (dir[1] * step) / canvas.h });
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => nudge.current(e);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (arrowsOwner === me) arrowsOwner = null;
+    };
+  }, [me]);
+
   return (
-    <div className="program">
+    <div className="program" onPointerDownCapture={() => { if (!viewOnly) arrowsOwner = me; }}>
       {!viewOnly && <div className="program-tools">
         {selected ? (
           <>
@@ -437,7 +475,7 @@ export function ProgramView({ compositor, items, sources, pages, selectedId, onS
             {!editor && <button type="button" className="btn btn-small" data-tip={selected.hidden ? 'Mostrar esta fonte no programa' : 'Esconder esta fonte do programa'} onClick={() => onToggleHidden(selected.sourceId)}>{selected.hidden ? <Eye size={13} /> : <EyeOff size={13} />} {selected.hidden ? 'Mostrar' : 'Ocultar'}</button>}
           </>
         ) : (
-          <span className="hint">Clique numa fonte para mover. Cantos: tamanho. Bordas: cortar.</span>
+          <span className="hint">Clique numa fonte para mover (setas: 1 px; Shift+setas: 10 px). Cantos: tamanho. Bordas: cortar.</span>
         )}
         {!editor && <span className="program-hud">
           {hud.quality && <QualityChip live={live} output={output} extras={extras} />}

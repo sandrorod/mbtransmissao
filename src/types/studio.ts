@@ -195,7 +195,43 @@ export interface MediaItem extends MediaFile {
   loop: boolean;
   /** Vídeo: o som vai para o mixer (e para a transmissão). */
   audio: boolean;
+  /** Estilo próprio desta mídia (ausente = segue o estilo padrão das mídias do projeto). */
+  look?: MediaLook;
 }
+
+/**
+ * Estilo de uma mídia no Programa/Prévia: borda, cantos, sombra, opacidade e efeitos de imagem.
+ * Medidas em pixels de uma tela 1080p (crescem/diminuem com a saída), como a borda das fontes.
+ */
+export interface MediaLook {
+  /** Borda (estilos de BORDER_STYLES, menos "sombra", que aqui é separada). null = sem borda. */
+  border: { style: BorderStyle; color: string; width: number } | null;
+  /** Cantos arredondados (0 a 200; 0 = retos). Valem com ou sem borda. */
+  radius: number;
+  /** Sombra projetada. null = sem sombra. */
+  shadow: { color: string; blur: number; distance: number } | null;
+  /** 0,05 a 1. */
+  opacity: number;
+  effects: MediaEffects;
+}
+
+export interface MediaEffects {
+  /** Brilho, contraste e saturação em % (100 = original; 0 a 200). */
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  /** Preto e branco e sépia em % (0 = nada, 100 = total). */
+  grayscale: number;
+  sepia: number;
+  /** Girar as cores (graus, -180 a 180). */
+  hue: number;
+  /** Desfoque (0 a 30). */
+  blur: number;
+}
+
+export const DEFAULT_MEDIA_EFFECTS: MediaEffects = { brightness: 100, contrast: 100, saturation: 100, grayscale: 0, sepia: 0, hue: 0, blur: 0 };
+/** Sem estilo: a mídia aparece como foi carregada. */
+export const DEFAULT_MEDIA_LOOK: MediaLook = { border: null, radius: 0, shadow: null, opacity: 1, effects: { ...DEFAULT_MEDIA_EFFECTS } };
 
 export const MEDIA_SCHEME = 'estudio-midia';
 export const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp'] as const;
@@ -230,6 +266,8 @@ export interface Project {
   pages: WebPage[];
   /** Fotos e vídeos importados ("midia:<id>" nas fontes). */
   media?: MediaItem[];
+  /** Estilo padrão das mídias: vale para todas sem estilo próprio, inclusive as carregadas depois. */
+  mediaLook?: MediaLook;
   /** Elementos na Prévia (ids de dispositivo, na ordem das camadas). */
   preview?: string[];
   /** Pastas da lista de widgets. */

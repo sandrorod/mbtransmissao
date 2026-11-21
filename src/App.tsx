@@ -5,6 +5,8 @@ import { audioType, baseName, displayName, findDevice, kindOf, normalizeLabel, s
 import { pageRegistry, pool } from './devices/pool';
 import { mediaPlayers, mediaRegistry } from './devices/mediaPlayers';
 import { MediaPanel } from './components/MediaPanel';
+import { isPlainLook, MediaLookDialog } from './components/MediaLookDialog';
+import type { MediaStyles } from './components/ProgramView';
 import { specKey } from './devices/mediaPool';
 import { useSystemDevices } from './devices/useSystemDevices';
 import { audioSpecOf, DevicesPanel, isMedia, isPage, isPhone, videoSpecOf, type DeviceEntry } from './components/DevicesPanel';
@@ -92,6 +94,7 @@ type Dialog =
   | { t: 'drive' }
   | { t: 'session-new' }
   | { t: 'sessions' }
+  | { t: 'media-look'; ids: string[] }
   | null;
 
 export default function App({ account, onLogout }: { account: AccountView; onLogout: () => void }) {
@@ -672,6 +675,16 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   const previewIds = project?.preview ?? [];
   const previewKey = previewIds.join('|');
   const previewSet = useMemo(() => new Set(previewKey ? previewKey.split('|') : []), [previewKey]);
+  /** Estilo de cada mídia no Programa e na Prévia: o próprio dela ou o de todas as mídias. */
+  const mediaStyles = useMemo<MediaStyles>(() => {
+    const map: MediaStyles = new Map();
+    for (const m of project?.media ?? []) {
+      const look = m.look ?? project?.mediaLook;
+      if (!look || isPlainLook(look)) continue;
+      map.set(`midia:${m.id}`, { border: look.border ? { ...look.border, radius: look.radius } : null, look });
+    }
+    return map;
+  }, [project?.media, project?.mediaLook]);
   const previewOrdered = [...previewIds.filter((d) => !d.startsWith('midia:')), ...previewIds.filter((d) => d.startsWith('midia:'))];
   // Mídias por cima de tudo também na Prévia.
   const previewSources: Source[] = previewOrdered.flatMap((deviceId) => {
@@ -1108,6 +1121,8 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
           if (device) addDeviceToScene(device, 'video');
         }}
         onChange={(item) => setProject((p) => (p ? { ...p, media: (p.media ?? []).map((m) => (m.id === item.id ? item : m)) } : p))}
+        onStyle={(ids) => setDialog({ t: 'media-look', ids })}
+        hasDefaultLook={Boolean(project.mediaLook && !isPlainLook(project.mediaLook))}
         onStop={(item) => {
           const source = project.sources.find((s) => s.device.deviceId === `midia:${item.id}` && activeScene?.items.some((i) => i.sourceId === s.id));
           if (source && activeScene) {
@@ -1127,6 +1142,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         sources={previewSources}
         compositor={previewCompositor}
         pages={project.pages}
+        mediaStyles={mediaStyles}
         output={prefs.output}
         selectedId={previewSelected}
         compact={expanded !== 'previa'}
@@ -1242,6 +1258,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     items={sceneVideoItems}
     sources={project.sources}
     pages={project.pages}
+    mediaStyles={mediaStyles}
     selectedId={selectedId}
     live={isLive}
     liveStatus={liveStatus}
@@ -1434,6 +1451,33 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         />
       )}
       {dialog?.t === 'phone' && <PhoneDialog publicAddress={prefs.publicAddress} onPublicAddress={(publicAddress) => updatePrefs({ ...prefs, publicAddress })} turn={prefs.turn} onTurn={(turn) => { const next = { ...prefs, turn }; setPrefs(next); void api().savePreferences(next).then(() => api().phoneLink()).then(() => phones.refreshIce()); }} onClose={() => setDialog(null)} />}
+      {dialog?.t === 'media-look' && (
+        <MediaLookDialog
+          media={project.media ?? []}
+          defaultLook={project.mediaLook}
+          initialIds={dialog.ids}
+          onClose={() => setDialog(null)}
+          onApply={(look, target) => {
+            const plain = isPlainLook(look);
+            if (target === 'all') {
+              // Vira o estilo de todas: as que tinham estilo próprio passam a seguir este, e as próximas também.
+              setProject((p) => (p ? { ...p, mediaLook: plain ? undefined : look, media: (p.media ?? []).map(({ look: _old, ...m }) => m) } : p));
+              notify({ tone: 'ok', icon: 'ok', title: plain ? 'Mídias sem estilo' : 'Estilo aplicado a todas as mídias', text: plain ? undefined : 'As mídias carregadas depois também vão usar este estilo.' });
+            } else {
+              const ids = new Set(target);
+              setProject((p) => (p ? { ...p, media: (p.media ?? []).map((m) => (ids.has(m.id) ? { ...m, look } : m)) } : p));
+              notify({ tone: 'ok', icon: 'ok', title: target.length === 1 ? 'Estilo aplicado à mídia' : `Estilo aplicado a ${target.length} mídias` });
+            }
+            setDialog(null);
+          }}
+          onReset={(ids) => {
+            const set = new Set(ids);
+            setProject((p) => (p ? { ...p, media: (p.media ?? []).map((m) => (set.has(m.id) ? (({ look: _old, ...rest }) => rest)(m) : m)) } : p));
+            notify({ tone: 'ok', icon: 'ok', title: ids.length === 1 ? 'A mídia voltou ao estilo padrão' : `${ids.length} mídias voltaram ao estilo padrão` });
+            setDialog(null);
+          }}
+        />
+      )}
       {dialog?.t === 'widget' && <WidgetDialog page={dialog.page} onSave={savePage} onClose={() => setDialog(null)} />}
       {dialog?.t === 'live' && (
         <LiveDialog

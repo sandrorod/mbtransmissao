@@ -4,13 +4,14 @@ import { SCENE_DRAG_TYPE } from './ScenesPanel';
 import { AreaExpand } from './Layout';
 import type { Compositor } from '../program/compositor';
 import type { Border, LiveExtras, LiveStatus, OutputSettings, ProgramHud, SceneItem, Source, Transform, WebPage } from '../types/studio';
-import { ProgramView } from './ProgramView';
+import { ProgramView, type MediaStyles } from './ProgramView';
 
 interface PreviewProps {
   /** Elementos da Prévia, na ordem das camadas (o primeiro fica atrás). */
   sources: Source[];
   compositor: Compositor;
   pages: WebPage[];
+  mediaStyles?: MediaStyles;
   output: OutputSettings;
   selectedId: string | null;
   /** No layout: só a imagem e o botão de expandir. Expandida: as ferramentas todas. */
@@ -64,6 +65,7 @@ export function PreviewPanel(props: PreviewProps) {
             items={items}
             sources={sources}
             pages={props.pages}
+            mediaStyles={props.mediaStyles}
             selectedId={props.selectedId}
             onSelect={props.onSelect}
             onTransform={props.onTransform}
@@ -93,6 +95,7 @@ interface ProgramProps {
   items: SceneItem[];
   sources: Source[];
   pages: WebPage[];
+  mediaStyles?: MediaStyles;
   selectedId: string | null;
   live: boolean;
   liveStatus: LiveStatus;
@@ -156,6 +159,7 @@ export function ProgramPanel(props: ProgramProps) {
           items={props.items}
           sources={props.sources}
           pages={props.pages}
+            mediaStyles={props.mediaStyles}
           selectedId={props.selectedId}
           onSelect={props.onSelect}
           onTransform={props.onTransform}
