@@ -546,7 +546,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     const ref = { deviceId: drag.deviceId, label: drag.label };
     const name = displayName(drag.label);
     if (sceneHasDevice(project, sceneId, drag.kind, ref, devices)) {
-      notify({ tone: 'warn', icon: 'alert', title: `${name} já está na cena ${scene.name}`, text: 'Cada dispositivo entra uma vez em cada cena.' });
+      notify({ tone: 'warn', icon: 'alert', title: `${name} já está na cena ${scene.name}`, text: 'Cada item entra uma vez em cada cena.' });
       return;
     }
     setProject(addToScene(project, sceneId, drag.kind, ref, devices));
@@ -1044,7 +1044,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         onSelect={(page) => {
           const inScene = project.sources.find((x) => x.device.deviceId === `pagina:${page.id}` && activeScene?.items.some((i) => i.sourceId === x.id));
           if (inScene) setSelectedId(inScene.id);
-          else notify({ tone: 'warn', icon: 'alert', title: `${page.name} não está na cena no ar`, text: 'Use "Adicionar à cena" para colocá-lo no Programa.' });
+          else notify({ tone: 'warn', icon: 'alert', title: `${page.name} não está na cena no ar`, text: 'Arraste o widget para a cena (ou use "Adicionar à cena") para colocá-lo no Programa.' });
         }}
         onSetLink={(ids, url) => {
           const changed = project.pages.filter((p) => ids.includes(p.id)).map((p) => ({ ...p, url }));

@@ -7,6 +7,7 @@ import { DEFAULT_CHROMA, type PageScroll, type SceneFolder, type WebPage } from 
 import { moveWidget, moveWidgetFolder, removeWidgetFolder, widgetRows, type DropTarget } from '../utils/folders';
 import { validPageUrl } from '../utils/validate';
 import { Modal, StatusTag } from './common';
+import { startDeviceDrag } from './ScenesPanel';
 
 const SIZES = [
   { label: '1920×1080 (Full HD)', width: 1920, height: 1080 },
@@ -450,8 +451,11 @@ export function WidgetsPanel(props: PanelProps) {
         draggable
         onDragStart={(e) => {
           e.stopPropagation();
+          // Leva também os dados de dispositivo: soltando numa cena (ou nas fontes da cena), o widget entra nela.
+          startDeviceDrag(e, { deviceId: `pagina:${page.id}`, label: page.name, kind: 'video' });
           e.dataTransfer.setData('text/plain', page.id);
-          e.dataTransfer.effectAllowed = 'move';
+          // Mover = reordenar na lista; copiar = pôr numa cena.
+          e.dataTransfer.effectAllowed = 'copyMove';
           setDrag({ kind: 'page', id: page.id });
         }}
         onDragOver={(e) => {
