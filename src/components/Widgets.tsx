@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
-import { ChevronDown, ChevronRight, ChevronsUp, ChevronUp, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Globe, GripVertical, Link2, Pencil, Pipette, Plus, RotateCcw, Scan, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsUp, ChevronUp, CopyPlus, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Globe, GripVertical, Link2, Pencil, Pipette, Plus, RotateCcw, Scan, Trash2 } from 'lucide-react';
 import { pageRegistry, pool, usePooledStream } from '../devices/pool';
 import { ChromaKeyer } from '../program/chroma';
 import { FrameReader } from '../program/frames';
@@ -330,6 +330,8 @@ interface PanelProps {
   onPreview: (page: WebPage) => void;
   onAdd: (page: WebPage) => void;
   onReload: (page: WebPage) => void;
+  /** Cria uma cópia do widget (mesmas configurações) logo abaixo dele. */
+  onDuplicate: (page: WebPage) => void;
   onRemove: (page: WebPage) => void;
   /** Clicar no widget seleciona ele no Programa (se estiver na cena no ar). */
   onSelect: (page: WebPage) => void;
@@ -513,6 +515,7 @@ export function WidgetsPanel(props: PanelProps) {
               <button type="button" className="btn btn-small" onClick={() => props.onAdd(page)}><Plus size={13} /> Adicionar à cena</button>
               <span className="device-actions-right">
                 <button type="button" className="icon-btn" title="Editar (área, fundo, endereço)" aria-label={`Editar ${page.name}`} onClick={() => props.onEdit(page)}><Pencil size={14} /></button>
+                <button type="button" className="icon-btn" title="Duplicar widget (cópia com as mesmas configurações)" aria-label={`Duplicar ${page.name}`} onClick={() => props.onDuplicate(page)}><CopyPlus size={14} /></button>
                 <button type="button" className="icon-btn" title="Recarregar a página" aria-label={`Recarregar ${page.name}`} onClick={() => props.onReload(page)}><RotateCcw size={14} /></button>
                 <button type="button" className="icon-btn icon-btn-remove" title="Remover widget" aria-label={`Remover ${page.name}`} onClick={() => props.onRemove(page)}><Trash2 size={14} /></button>
               </span>

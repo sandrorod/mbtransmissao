@@ -610,6 +610,37 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     setDialog(null);
   };
 
+  /**
+   * Duplica um widget: a cópia (mesmo site, área, fundo, tamanho e som) fica logo abaixo dele na lista.
+   * Se o original está na cena no ar, a cópia entra nela na mesma posição, por cima, pronta para ser movida.
+   */
+  const duplicatePage = (page: WebPage) => {
+    if (!project) return;
+    const names = new Set(project.pages.map((p) => p.name));
+    let name = `${page.name} (cópia)`;
+    for (let n = 2; names.has(name); n++) name = `${page.name} (cópia ${n})`;
+    const copy: WebPage = { ...page, id: newId(), name };
+    pageRegistry.set(copy.id, copy);
+    const at = project.pages.findIndex((p) => p.id === page.id);
+    let next: Project = { ...project, pages: [...project.pages.slice(0, at + 1), copy, ...project.pages.slice(at + 1)] };
+    const original = project.sources.find((s) => s.kind === 'video' && s.device.deviceId === `pagina:${page.id}`);
+    const item = original && activeScene?.items.find((i) => i.sourceId === original.id);
+    if (activeScene && original && item) {
+      const ref = { deviceId: `pagina:${copy.id}`, label: copy.name };
+      next = addToScene(next, activeScene.id, 'video', ref, devices);
+      const source = next.sources.find((s) => s.device.deviceId === ref.deviceId);
+      if (source) {
+        next = {
+          ...next,
+          sources: next.sources.map((s) => (s.id === source.id ? { ...s, video: original.video ? { ...original.video, extra: { ...original.video.extra } } : s.video } : s)),
+          scenes: next.scenes.map((s) => (s.id !== activeScene.id ? s : { ...s, items: s.items.map((i) => (i.sourceId === source.id ? { ...i, transform: item.transform, ...(item.fill ? { fill: item.fill } : {}), ...(item.border ? { border: item.border } : {}), folder: item.folder ?? null } : i)) })),
+        };
+      }
+    }
+    setProject(next);
+    notify({ tone: 'ok', icon: 'ok', title: `${name} criado`, text: item && activeScene ? `Está na cena ${activeScene.name}, em cima do original: arraste no programa para movê-la.` : 'Arraste para uma cena para colocá-lo nela.' });
+  };
+
   /** Muda só a parte da página que o widget mostra (arrastando o conteúdo no programa), sem recarregar a página. */
   const setPageRegion = (pageId: string, region: WebPage['region']) => {
     const current = pageRegistry.get(pageId);
@@ -1040,6 +1071,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
           if (device) addDeviceToScene(device, 'video');
         }}
         onReload={(page) => void api().reloadPage(page.id)}
+        onDuplicate={duplicatePage}
         selectedPageId={project.sources.find((x) => x.id === selectedId)?.device.deviceId.replace(/^pagina:/, '') ?? null}
         onSelect={(page) => {
           const inScene = project.sources.find((x) => x.device.deviceId === `pagina:${page.id}` && activeScene?.items.some((i) => i.sourceId === x.id));
