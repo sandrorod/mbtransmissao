@@ -1031,6 +1031,35 @@ function createWindow(): void {
   }
 }
 
+/**
+ * Versão nova do app instalado (assinatura local muda a cada versão): o macOS mantém a permissão de câmera e
+ * microfone da versão anterior como "permitida", mas ela não vale para a nova, e a lista de aparelhos fica sem
+ * resposta. Na 1ª abertura de cada versão, apaga a decisão antiga deste app; o macOS pergunta de novo
+ * (askForMediaAccess logo depois) e a pessoa só clica em "Permitir".
+ */
+async function resetMediaOnNewBuild(): Promise<void> {
+  if (!app.isPackaged) return;
+  try {
+    // Arquivo da assinatura: reescrito a cada build assinado (= identidade nova para o macOS). NÃO usar o
+    // app.asar: o Electron o trata como pasta virtual e devolve tamanho 0 e horário de agora, e a permissão
+    // seria apagada em toda abertura.
+    const signature = join(process.resourcesPath, '..', '_CodeSignature', 'CodeResources');
+    const info = await stat(signature);
+    const stamp = `${app.getVersion()}|${info.size}|${Math.round(info.mtimeMs)}`;
+    const file = join(app.getPath('userData'), 'versao-permissoes.txt');
+    const previous = await readFile(file, 'utf8').catch(() => '');
+    if (previous.trim() === stamp) return;
+    const { execFile } = await import('node:child_process');
+    const reset = (service: string) => new Promise<void>((resolve) => execFile('/usr/bin/tccutil', ['reset', service, 'br.com.estudioaovivo.app'], () => resolve()));
+    await reset('Camera');
+    await reset('Microphone');
+    await writeFile(file, stamp, 'utf8');
+    liveLog(`permissões: versão nova (${stamp}); permissão antiga de câmera e microfone apagada, o macOS pergunta de novo`);
+  } catch (e) {
+    liveLog(`permissões: não foi possível conferir a versão (${String(e)})`);
+  }
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -1056,6 +1085,7 @@ if (!app.requestSingleInstanceLock()) {
       });
     }
     if (process.platform === 'darwin') {
+      await resetMediaOnNewBuild();
       // Com prazo: se o pedido do macOS não aparecer ou ficar sem resposta, a janela abre mesmo assim (antes o
       // app ficava rodando sem janela). O pedido continua valendo e pode ser respondido depois.
       const ask = (kind: 'camera' | 'microphone') => {
