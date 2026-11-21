@@ -185,6 +185,11 @@ function WidgetPreview({ page, picking, onRegion, onPick, onScroll }: { page: We
       <div className="widget-stage" style={{ width: size.w, height: size.h }}>
         <canvas ref={canvas} />
         {pooled.status !== 'ativo' && <div className="video-status"><strong>{pooled.status === 'abrindo' ? 'Carregando a página…' : pooled.error ?? 'Página indisponível'}</strong></div>}
+        {region && !picking && (
+          <div className="widget-shade" aria-hidden="true">
+            <div style={{ left: `${region.x * 100}%`, top: `${region.y * 100}%`, width: `${region.w * 100}%`, height: `${region.h * 100}%` }} />
+          </div>
+        )}
         <div
           ref={overlay}
           className={`widget-overlay ${picking ? 'widget-picking' : ''}`}
