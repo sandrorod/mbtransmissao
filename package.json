@@ -74,7 +74,30 @@
       }
     },
     "dmg": {
-      "title": "Estúdio ao Vivo"
+      "title": "Instalar Estudio ao Vivo",
+      "contents": [
+        {
+          "x": 140,
+          "y": 230,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 230,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 270,
+          "y": 70,
+          "type": "file",
+          "path": "build/LEIA ANTES - Como instalar.txt"
+        }
+      ],
+      "window": {
+        "width": 540,
+        "height": 380
+      }
     }
   }
 }

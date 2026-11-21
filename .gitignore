@@ -6,3 +6,6 @@ release
 selftest*.json
 dist/
 build/ffmpeg/
+
+# Certificado de assinatura local (estável entre versões; nunca vai para o git)
+build/assinatura/

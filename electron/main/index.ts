@@ -396,6 +396,18 @@ function registerIpc(): void {
     if (kind !== 'camera' && kind !== 'microphone' && kind !== 'screen') return;
     await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${PRIVACY_PANES[kind]}`);
   });
+  ipcMain.handle(IPC.resetMediaPermissions, async () => {
+    // Só no app instalado: em desenvolvimento o identificador é o do Electron, que outros apps usam.
+    if (!app.isPackaged || process.platform !== 'darwin') return;
+    const id = 'br.com.estudioaovivo.app'; // appId do package.json (build.appId)
+    const { execFile } = await import('node:child_process');
+    const reset = (service: string) => new Promise<void>((resolve) => execFile('/usr/bin/tccutil', ['reset', service, id], () => resolve()));
+    await reset('Camera');
+    await reset('Microphone');
+    liveLog(`permissões: câmera e microfone apagadas para ${id}; reabrindo`);
+    app.relaunch();
+    app.exit(0);
+  });
   ipcMain.handle(IPC.listNativeDevices, () => listNativeDevices());
   ipcMain.handle(IPC.probeVideoModes, (_e, label: unknown) => (typeof label === 'string' && label.length < 300 ? probeVideoModes(label) : null));
   ipcMain.handle(IPC.forgetVideoModes, () => forgetVideoModes());

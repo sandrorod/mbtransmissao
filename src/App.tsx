@@ -241,7 +241,22 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   const pageDevices: SystemDevice[] = (project?.pages ?? []).map((p) => ({ deviceId: `pagina:${p.id}`, groupId: p.id, label: p.name, kind: 'videoinput' }));
   const mediaDevices: SystemDevice[] = (project?.media ?? []).map((m) => ({ deviceId: `midia:${m.id}`, groupId: m.id, label: m.name, kind: 'videoinput' }));
   const extra = [...phones.devices(), ...pageDevices, ...mediaDevices];
-  const { devices, ready, refresh } = useSystemDevices(onDevicesChanged, extra);
+  const { devices, ready, refresh, failures: deviceFailures } = useSystemDevices(onDevicesChanged, extra);
+  // O macOS não entrega a lista de aparelhos (permissão "presa" de outra versão do app, por exemplo): oferece o
+  // conserto em um clique, pensado para quem não conhece o Terminal. Aparece uma vez por abertura.
+  const offeredFix = useRef(false);
+  useEffect(() => {
+    if (deviceFailures < 2 || offeredFix.current) return;
+    offeredFix.current = true;
+    notify({
+      tone: 'error',
+      icon: 'alert',
+      title: 'O Mac não está mostrando as câmeras e microfones',
+      text: 'Clique em "Corrigir permissões": o Estúdio reabre e o Mac pergunta de novo se pode usar a câmera e o microfone. Responda "Permitir" nas duas perguntas.',
+      sticky: true,
+      action: { label: 'Corrigir permissões', run: () => void api().resetMediaPermissions() },
+    });
+  }, [deviceFailures, notify]);
   const devicesRef = useRef(devices);
   devicesRef.current = devices;
 
@@ -306,13 +321,15 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     setPrefs(stored.prefs);
     if (stored.project) {
       setProject(stored.project);
-      const items = missingDevices(stored.project, devices);
+      // Só com a lista de aparelhos de verdade: se o sistema não respondeu, "faltariam" todos e a janela
+      // confundiria (o aviso de "Corrigir permissões" trata esse caso).
+      const items = deviceFailures === 0 ? missingDevices(stored.project, devices) : [];
       if (items.length) setMissing(items);
     } else {
       setProject(createProject(devices, stored.prefs));
     }
     void api().mediaAccess().then(setAccess);
-  }, [ready, stored, project, devices]);
+  }, [ready, stored, project, devices, deviceFailures]);
 
   useEffect(() => {
     if (!project) return;

@@ -48,6 +48,8 @@ async function unlockLabels(): Promise<void> {
 export function useSystemDevices(onChange: (changes: DeviceChanges, devices: SystemDevice[]) => void, extra: SystemDevice[] = []) {
   const [devices, setDevices] = useState<SystemDevice[]>([]);
   const [ready, setReady] = useState(false);
+  /** Buscas seguidas sem resposta do sistema (zera quando uma responde). */
+  const [failures, setFailures] = useState(0);
   const previous = useRef<SystemDevice[] | null>(null);
   const latest = useRef(onChange);
   latest.current = onChange;
@@ -77,8 +79,10 @@ export function useSystemDevices(onChange: (changes: DeviceChanges, devices: Sys
       const key = (l: SystemDevice[]) => l.map((d) => `${d.kind}|${d.deviceId}|${d.groupId}|${d.label}`).join(',');
       if (before && key(before) === key(list)) {
         pool.sync(before);
+        setFailures(0);
         return;
       }
+      setFailures(0);
       previous.current = list;
       setDevices(list);
       pool.sync(list);
@@ -90,6 +94,7 @@ export function useSystemDevices(onChange: (changes: DeviceChanges, devices: Sys
     } catch (e) {
       // Um erro na busca não pode deixar a tela parada: segue com o que tiver e tenta de novo em 4 s.
       log(`erro na busca: ${e instanceof Error ? e.message : String(e)}`);
+      setFailures((n) => n + 1);
       setReady(true);
     } finally {
       busy.current = false;
@@ -115,5 +120,5 @@ export function useSystemDevices(onChange: (changes: DeviceChanges, devices: Sys
     };
   }, [refresh]);
 
-  return { devices, ready, refresh };
+  return { devices, ready, refresh, failures };
 }

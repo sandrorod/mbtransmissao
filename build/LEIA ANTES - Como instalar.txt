@@ -1,0 +1,20 @@
+COMO INSTALAR O ESTÚDIO AO VIVO
+================================
+
+1. Arraste o "Estudio ao Vivo" para a pasta "Applications" (Aplicativos), aqui ao lado.
+
+2. Abra a pasta Aplicativos e dê dois cliques no "Estudio ao Vivo".
+   Na primeira vez o Mac avisa que não pôde verificar o app. Clique em "OK" (ou "Concluído").
+
+3. Abra os Ajustes do Sistema > Privacidade e Segurança.
+   Role até o fim: aparece "Estudio ao Vivo foi bloqueado". Clique em "Abrir Mesmo Assim"
+   e confirme com a senha do Mac. Isso só é preciso uma vez.
+
+4. Quando o app perguntar se pode usar a CÂMERA e o MICROFONE, clique em "Permitir" nas duas.
+
+5. Para transmitir páginas e o som delas, o app mostra o botão "Abrir Ajustes" na parte de
+   Captura de tela: ligue o "Estudio ao Vivo" na lista e abra o app de novo.
+
+SE AS CÂMERAS NÃO APARECEREM
+O próprio app mostra um aviso com o botão "Corrigir permissões". Clique nele: o app reabre e o
+Mac pergunta de novo sobre câmera e microfone. Responda "Permitir".

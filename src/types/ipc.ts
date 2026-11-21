@@ -2,6 +2,7 @@ export const IPC = {
   mediaAccess: 'media:access',
   requestAccess: 'media:request',
   openPrivacySettings: 'media:privacy',
+  resetMediaPermissions: 'media:reset-permissions',
   listNativeDevices: 'devices:native',
   probeVideoModes: 'devices:modes',
   forgetVideoModes: 'devices:forget-modes',

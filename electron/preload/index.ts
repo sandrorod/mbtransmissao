@@ -7,6 +7,7 @@ const api: StudioApi = {
   mediaAccess: () => ipcRenderer.invoke(IPC.mediaAccess),
   requestAccess: (kind) => ipcRenderer.invoke(IPC.requestAccess, kind),
   openPrivacySettings: (kind) => ipcRenderer.invoke(IPC.openPrivacySettings, kind),
+  resetMediaPermissions: () => ipcRenderer.invoke(IPC.resetMediaPermissions),
   listNativeDevices: () => ipcRenderer.invoke(IPC.listNativeDevices),
   probeVideoModes: (label) => ipcRenderer.invoke(IPC.probeVideoModes, label),
   forgetVideoModes: () => ipcRenderer.invoke(IPC.forgetVideoModes),

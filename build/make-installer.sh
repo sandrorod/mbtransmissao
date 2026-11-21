@@ -20,7 +20,26 @@ env -u ELECTRON_RUN_AS_NODE npx electron-builder --mac dir --universal -c.mac.id
 # "ú" (NFC): os bytes diferem e o Electron fecha o app ao abrir ("unexpected helper executable").
 # O nome com acento aparece só como CFBundleDisplayName.
 APP="dist/mac-universal/Estudio ao Vivo.app"
-codesign --force --deep --sign - "$APP"
+# Assinatura com certificado próprio e FIXO (build/assinatura, fora do git). Com a assinatura ad-hoc ("-")
+# cada versão tinha uma identidade diferente para o macOS: a permissão de câmera/microfone dada a uma versão
+# continuava "permitida" mas não valia para a nova, e a lista de aparelhos ficava sem resposta para sempre.
+# Com o certificado, a identidade (bundle id + certificado) é a mesma em todas as versões.
+KC="$PWD/build/assinatura/estudio.keychain-db"
+CERT=3F58F994CFD8BFEE35E40DDAB62E51F567C787D9
+if [ -f "$KC" ] && [ -f build/assinatura/senha.txt ]; then
+  ORIG=$(security list-keychains -d user | tr -d '"' | xargs)
+  security list-keychains -d user -s $ORIG "$KC"
+  security unlock-keychain -p "$(cat build/assinatura/senha.txt)" "$KC"
+  # O --deep não assina executáveis dentro de Resources (o FFmpeg fica em app.asar.unpacked): assina antes.
+  codesign --force --sign "$CERT" "$APP/Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg" || { security list-keychains -d user -s $ORIG; exit 1; }
+  codesign --force --deep --sign "$CERT" "$APP" || { security list-keychains -d user -s $ORIG; exit 1; }
+  security list-keychains -d user -s $ORIG
+else
+  echo "AVISO: sem build/assinatura (certificado fixo); assinando ad-hoc. Quem atualizar precisará permitir câmera/microfone de novo."
+  codesign --force --sign - "$APP/Contents/Resources/app.asar.unpacked/node_modules/ffmpeg-static/ffmpeg"
+  codesign --force --deep --sign - "$APP"
+fi
 codesign --verify --deep --strict "$APP"
+codesign -dr - "$APP"
 env -u ELECTRON_RUN_AS_NODE npx electron-builder --mac dmg --universal --prepackaged "$APP" -c.mac.identity=null
 ls -la dist/*.dmg

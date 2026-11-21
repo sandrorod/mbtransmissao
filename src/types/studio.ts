@@ -718,6 +718,11 @@ export interface StudioApi {
   mediaAccess(): Promise<MediaAccess>;
   requestAccess(kind: 'camera' | 'microphone'): Promise<boolean>;
   openPrivacySettings(kind: 'camera' | 'microphone' | 'screen'): Promise<void>;
+  /**
+   * Apaga a decisão do macOS sobre câmera e microfone só deste app e reabre o app: o macOS pergunta de novo.
+   * Conserta a permissão "presa" de uma versão anterior (lista de aparelhos sem resposta).
+   */
+  resetMediaPermissions(): Promise<void>;
   listNativeDevices(): Promise<NativeDevices>;
   probeVideoModes(label: string): Promise<VideoMode[] | null>;
   /** Esquece os modos já consultados (um aparelho novo com o mesmo nome pode ser outro). */
