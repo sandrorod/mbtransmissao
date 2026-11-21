@@ -3,6 +3,8 @@ export const IPC = {
   requestAccess: 'media:request',
   openPrivacySettings: 'media:privacy',
   resetMediaPermissions: 'media:reset-permissions',
+  setFullScreen: 'window:set-full-screen',
+  fullScreenChanged: 'window:full-screen-changed',
   listNativeDevices: 'devices:native',
   probeVideoModes: 'devices:modes',
   forgetVideoModes: 'devices:forget-modes',

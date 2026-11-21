@@ -762,6 +762,9 @@ button.replay-chip:hover { color: var(--text); border-color: var(--accent); }
 .area-popup-bar { display: flex; align-items: center; gap: 8px; flex: none; height: 38px; padding: 0 8px 0 12px; background: var(--panel); border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none; }
 .area-popup-bar:active { cursor: grabbing; }
 .area-popup-full .area-popup-bar, .area-popup-full .area-popup-bar:active { cursor: default; }
+/* Tela cheia de verdade (monitor inteiro): sem moldura, fundo do app. */
+.area-popup.area-popup-screen { border: 0; border-radius: 0; background: var(--bg); }
+.area-popup-screen .area-popup-bar, .area-popup-screen .area-popup-bar:active { cursor: default; }
 .area-popup-bar > svg { color: var(--muted); }
 .area-popup-title { flex: 1; font-size: 10.4px; font-weight: 700; }
 .area-popup-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 8px; }

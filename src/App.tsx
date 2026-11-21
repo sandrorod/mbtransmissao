@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { Blend, Clapperboard, CloudUpload, History, FilePlus2, Film, FolderOpen, LayoutTemplate, Upload, GripHorizontal, Maximize2, Minimize2, Radio, Save, Settings2, Square, Timer } from 'lucide-react';
+import { Blend, Clapperboard, Expand, Shrink, CloudUpload, History, FilePlus2, Film, FolderOpen, LayoutTemplate, Upload, GripHorizontal, Maximize2, Minimize2, Radio, Save, Settings2, Square, Timer } from 'lucide-react';
 import { mixer } from './audio/engine';
 import { audioType, baseName, displayName, findDevice, kindOf, normalizeLabel, setDeviceAliases, videoType, type DeviceChanges, type SystemDevice } from './devices/identify';
 import { pageRegistry, pool } from './devices/pool';
@@ -1461,8 +1461,9 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
 /**
  * Uma área do layout aberta numa janela flutuante: arrasta pelo título, muda de tamanho pelo canto e deixa o
  * resto do layout livre (dá para ir buscando elementos enquanto ela está aberta). Esc ou o botão devolvem a área.
- * "Tela inteira" ocupa a janela toda do app (o Programa já abre assim: no layout ele é maior que a janela
- * flutuante, e ampliar não podia diminuir a imagem).
+ * "Ocupar o app" usa a janela toda do app (o Programa já abre assim: no layout ele é maior que a janela
+ * flutuante, e ampliar não podia diminuir a imagem). "Tela cheia" põe a janela do app na tela cheia do sistema
+ * com esta área cobrindo tudo: só ela no monitor inteiro (Esc ou o botão saem dela).
  */
 function AreaPopup({ title, onClose, startFull = false, children }: { title: string; onClose: () => void; startFull?: boolean; children: ReactNode }) {
   const [full, setFull] = useState(startFull);
@@ -1478,16 +1479,39 @@ function AreaPopup({ title, onClose, startFull = false, children }: { title: str
     return { x: Math.round((window.innerWidth - w) / 2), y: Math.round((window.innerHeight - h) / 2), w, h };
   });
   const drag = useRef<{ mode: 'move' | 'size'; startX: number; startY: number; box: typeof box } | null>(null);
+  const [screenFull, setScreenFull] = useState(false);
+  /** Foi esta área que pôs o app em tela cheia (se já estava pelo botão verde do macOS, fechar não tira). */
+  const entered = useRef(false);
+  useEffect(() => {
+    const off = api().onFullScreen((on) => {
+      if (!on) entered.current = false;
+      setScreenFull(on && entered.current);
+    });
+    // Fechou a área ainda em tela cheia: a janela do app sai dela.
+    return () => {
+      off();
+      if (entered.current) void api().setFullScreen(false);
+    };
+  }, []);
+  const toggleScreenFull = () => {
+    entered.current = !screenFull;
+    // Já cobre a janela no clique: a animação do macOS leva uns segundos até o aviso de "entrou/saiu".
+    setScreenFull(!screenFull);
+    void api().setFullScreen(!screenFull);
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (e.key === 'Escape' && !(t && ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) onClose();
+      if (e.key !== 'Escape' || (t && ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      // Em tela cheia, o Esc primeiro sai dela; só o próximo devolve a área ao layout.
+      if (screenFull) toggleScreenFull();
+      else onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, screenFull]);
   const start = (mode: 'move' | 'size') => (e: React.PointerEvent<HTMLElement>) => {
-    if (full) return;
+    if (full || screenFull) return;
     if (e.button !== 0 || (mode === 'move' && (e.target as HTMLElement).closest('button'))) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -1507,17 +1531,22 @@ function AreaPopup({ title, onClose, startFull = false, children }: { title: str
   };
   const end = () => { drag.current = null; };
   return (
-    <div className={`area-popup ${full ? 'area-popup-full' : ''}`} role="dialog" aria-label={title} style={full ? { left: 8, top: 8, width: window.innerWidth - 16, height: window.innerHeight - 16 } : { left: box.x, top: box.y, width: box.w, height: box.h }}>
-      <div className="area-popup-bar" onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest('button')) setFull(!full); }}>
+    <div className={`area-popup ${full ? 'area-popup-full' : ''} ${screenFull ? 'area-popup-screen' : ''}`} role="dialog" aria-label={title} style={screenFull ? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight } : full ? { left: 8, top: 8, width: window.innerWidth - 16, height: window.innerHeight - 16 } : { left: box.x, top: box.y, width: box.w, height: box.h }}>
+      <div className="area-popup-bar" onPointerDown={start('move')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onDoubleClick={(e) => { if (!screenFull && !(e.target as HTMLElement).closest('button')) setFull(!full); }}>
         {!full && <GripHorizontal size={14} />}
         <span className="area-popup-title">{title}</span>
-        <button type="button" className="btn btn-small" onClick={() => setFull(!full)} aria-pressed={full} data-tip={full ? 'Volta para a janela flutuante (dá para mover e mudar o tamanho)' : 'Ocupa a janela toda do app (ou dois cliques no título)'}>
-          {full ? <><Minimize2 size={13} /> Janela</> : <><Maximize2 size={13} /> Tela inteira</>}
+        {!screenFull && (
+          <button type="button" className="btn btn-small" onClick={() => setFull(!full)} aria-pressed={full} data-tip={full ? 'Volta para a janela flutuante (dá para mover e mudar o tamanho)' : 'Ocupa a janela toda do app (ou dois cliques no título)'}>
+            {full ? <><Minimize2 size={13} /> Janela</> : <><Maximize2 size={13} /> Ocupar o app</>}
+          </button>
+        )}
+        <button type="button" className={`btn btn-small ${screenFull ? 'btn-on' : ''}`} onClick={toggleScreenFull} aria-pressed={screenFull} data-tip={screenFull ? 'Sai da tela cheia (Esc)' : 'Só esta área no monitor inteiro, sem o resto do app'}>
+          {screenFull ? <><Shrink size={13} /> Sair da tela cheia</> : <><Expand size={13} /> Tela cheia</>}
         </button>
-        <button type="button" className="btn btn-small" onClick={onClose} data-tip="Devolve a área ao layout (Esc)"><Minimize2 size={13} /> Voltar ao layout</button>
+        {!screenFull && <button type="button" className="btn btn-small" onClick={onClose} data-tip="Devolve a área ao layout (Esc)"><Minimize2 size={13} /> Voltar ao layout</button>}
       </div>
       <div className="area-popup-body">{children}</div>
-      {!full && <div className="area-popup-resize" aria-label="Mudar o tamanho da janela" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />}
+      {!full && !screenFull && <div className="area-popup-resize" aria-label="Mudar o tamanho da janela" onPointerDown={start('size')} onPointerMove={move} onPointerUp={end} onPointerCancel={end} />}
     </div>
   );
 }

@@ -408,6 +408,12 @@ function registerIpc(): void {
     app.relaunch();
     app.exit(0);
   });
+  ipcMain.handle(IPC.setFullScreen, (_e, on: unknown) => {
+    if (typeof on !== 'boolean' || !mainWindow || mainWindow.isDestroyed()) return;
+    // Já está no modo pedido (ex.: tela cheia pelo botão verde): não haverá evento, então avisa já.
+    if (mainWindow.isFullScreen() === on) toWindow(IPC.fullScreenChanged, on);
+    else mainWindow.setFullScreen(on);
+  });
   ipcMain.handle(IPC.listNativeDevices, () => listNativeDevices());
   ipcMain.handle(IPC.probeVideoModes, (_e, label: unknown) => (typeof label === 'string' && label.length < 300 ? probeVideoModes(label) : null));
   ipcMain.handle(IPC.forgetVideoModes, () => forgetVideoModes());
@@ -996,6 +1002,8 @@ function createWindow(): void {
     },
   });
   mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('enter-full-screen', () => toWindow(IPC.fullScreenChanged, true));
+  mainWindow.on('leave-full-screen', () => toWindow(IPC.fullScreenChanged, false));
   if (SELF_TEST && process.env.OBS_TEST_SHOW === '1') mainWindow.showInactive();
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => {

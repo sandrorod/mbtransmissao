@@ -723,6 +723,10 @@ export interface StudioApi {
    * Conserta a permissão "presa" de uma versão anterior (lista de aparelhos sem resposta).
    */
   resetMediaPermissions(): Promise<void>;
+  /** Põe/tira a janela do app da tela cheia do sistema (monitor inteiro). */
+  setFullScreen(on: boolean): Promise<void>;
+  /** Avisa quando a janela entra/sai da tela cheia (pelo app, pelo menu ou pelo botão verde do macOS). */
+  onFullScreen(cb: (on: boolean) => void): () => void;
   listNativeDevices(): Promise<NativeDevices>;
   probeVideoModes(label: string): Promise<VideoMode[] | null>;
   /** Esquece os modos já consultados (um aparelho novo com o mesmo nome pode ser outro). */
