@@ -520,7 +520,7 @@ body.resizing * { user-select: none; }
 
 /* Widgets: arrastar para ordenar e novo link em vários */
 .panel-head-actions { display: inline-flex; align-items: center; gap: 6px; }
-.widget-card { position: relative; }
+.widget-card { position: relative; padding-top: 4px; padding-bottom: 4px; }
 .widget-grip { flex: none; color: var(--muted); cursor: grab; }
 .widget-card:active .widget-grip { cursor: grabbing; }
 .widget-dragging { opacity: .45; }
