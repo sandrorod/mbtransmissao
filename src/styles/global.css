@@ -452,6 +452,11 @@ body.resizing * { user-select: none; }
 .scene { cursor: grab; }
 .scene-grip { flex: none; margin-right: 2px; }
 .scene.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+/* Miniatura de dispositivo sendo arrastada sobre uma cena (ou sobre as fontes da cena ativa). */
+.scene.scene-device-over { outline: 2px dashed var(--accent); outline-offset: 1px; background: rgba(25, 181, 176, .14); }
+.scene-sources { border-radius: 6px; }
+.scene-sources.scene-sources-device-over { outline: 2px dashed var(--accent); outline-offset: 2px; background: rgba(25, 181, 176, .08); }
+.video-tile[draggable="true"] { cursor: grab; }
 .scene.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
 .drop-hint { margin-left: auto; padding: 2px 8px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); font-size: 8.8px; font-weight: 700; }
 

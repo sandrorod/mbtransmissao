@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type DragEvent } from 'react';
 import { Check, ChevronDown, ChevronRight, Eye, EyeOff, Folder, FolderOpen, FolderPlus, Globe, GripVertical, LockKeyhole, LockKeyholeOpen, Mic, Pencil, Plus, Settings2, Smartphone, Trash2, Video, X } from 'lucide-react';
 import { displayName } from '../devices/identify';
 import type { Scene, SceneFolder, SceneItem, Source } from '../types/studio';
@@ -29,10 +29,34 @@ interface Props {
   onSceneUpdate: (sceneId: string, patch: { items?: SceneItem[]; folders?: SceneFolder[] }) => void;
   /** Nova ordem das cenas na lista. */
   onReorderScenes: (sceneIds: string[]) => void;
+  /** Miniatura de dispositivo solta numa cena: entra nela (se ainda não estiver). */
+  onDropDevice: (sceneId: string, device: DeviceDrag) => void;
 }
 
 /** Arrastar uma cena: na lista muda a ordem; soltando no Programa, ela vai para o ar. */
 export const SCENE_DRAG_TYPE = 'application/x-estudio-cena';
+
+/** Arrastar a miniatura de um dispositivo: soltando numa cena (ou nas fontes da cena), ele entra nela. */
+export const DEVICE_DRAG_TYPE = 'application/x-estudio-dispositivo';
+export interface DeviceDrag {
+  deviceId: string;
+  label: string;
+  kind: 'video' | 'audio';
+}
+export function startDeviceDrag(e: DragEvent<HTMLElement>, device: DeviceDrag): void {
+  e.dataTransfer.effectAllowed = 'copy';
+  e.dataTransfer.setData(DEVICE_DRAG_TYPE, JSON.stringify(device));
+}
+const isDeviceDrag = (e: DragEvent<HTMLElement>) => e.dataTransfer.types.includes(DEVICE_DRAG_TYPE);
+function readDeviceDrag(e: DragEvent<HTMLElement>): DeviceDrag | null {
+  try {
+    const d = JSON.parse(e.dataTransfer.getData(DEVICE_DRAG_TYPE)) as Partial<DeviceDrag>;
+    if (typeof d.deviceId !== 'string' || typeof d.label !== 'string' || (d.kind !== 'video' && d.kind !== 'audio')) return null;
+    return { deviceId: d.deviceId, label: d.label, kind: d.kind };
+  } catch {
+    return null;
+  }
+}
 
 const STATUS_LABEL: Record<SourceStatus, string> = { conectado: 'Conectado', ativo: 'No ar', abrindo: 'Abrindo', desconectado: 'Desconectado', falhou: 'Falhou' };
 
@@ -52,6 +76,28 @@ export function ScenesPanel(props: Props) {
   const [folderName, setFolderName] = useState('');
   const [sceneDrag, setSceneDrag] = useState<string | null>(null);
   const [sceneDrop, setSceneDrop] = useState<{ id: string; after: boolean } | null>(null);
+  /** Cena sobre a qual uma miniatura de dispositivo está sendo arrastada. */
+  const [deviceOver, setDeviceOver] = useState<string | null>(null);
+  const deviceDropHandlers = (sceneId: string) => ({
+    onDragEnter: (e: DragEvent<HTMLElement>) => { if (isDeviceDrag(e)) { e.preventDefault(); setDeviceOver(sceneId); } },
+    onDragLeave: (e: DragEvent<HTMLElement>) => { if (isDeviceDrag(e) && !e.currentTarget.contains(e.relatedTarget as Node)) setDeviceOver((id) => (id === sceneId ? null : id)); },
+  });
+  /** Trata o arrasto de dispositivo; devolve true quando era um (os outros arrastos seguem como antes). */
+  const deviceOverScene = (e: DragEvent<HTMLElement>, sceneId: string) => {
+    if (!isDeviceDrag(e)) return false;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (deviceOver !== sceneId) setDeviceOver(sceneId);
+    return true;
+  };
+  const dropDevice = (e: DragEvent<HTMLElement>, sceneId: string) => {
+    if (!isDeviceDrag(e)) return false;
+    e.preventDefault();
+    setDeviceOver(null);
+    const device = readDeviceDrag(e);
+    if (device) props.onDropDevice(sceneId, device);
+    return true;
+  };
 
   const dropScene = (targetId: string) => {
     const moved = sceneDrag;
@@ -160,7 +206,7 @@ export function ScenesPanel(props: Props) {
         {scenes.map((scene) => (
           <li
             key={scene.id}
-            className={`scene ${scene.id === activeId ? 'scene-active' : ''} ${sceneDrag === scene.id ? 'source-dragging' : ''} ${sceneDrop?.id === scene.id ? (sceneDrop.after ? 'drop-after' : 'drop-before') : ''}`}
+            className={`scene ${scene.id === activeId ? 'scene-active' : ''} ${deviceOver === scene.id ? 'scene-device-over' : ''} ${sceneDrag === scene.id ? 'source-dragging' : ''} ${sceneDrop?.id === scene.id ? (sceneDrop.after ? 'drop-after' : 'drop-before') : ''}`}
             draggable={editing !== scene.id}
             onDragStart={(e) => {
               setSceneDrag(scene.id);
@@ -168,13 +214,15 @@ export function ScenesPanel(props: Props) {
               e.dataTransfer.setData(SCENE_DRAG_TYPE, scene.id);
             }}
             onDragEnd={() => { setSceneDrag(null); setSceneDrop(null); }}
+            {...deviceDropHandlers(scene.id)}
             onDragOver={(e) => {
+              if (deviceOverScene(e, scene.id)) return;
               if (!sceneDrag) return;
               e.preventDefault();
               const r = e.currentTarget.getBoundingClientRect();
               setSceneDrop({ id: scene.id, after: e.clientY > r.top + r.height / 2 });
             }}
-            onDrop={(e) => { e.preventDefault(); dropScene(scene.id); }}
+            onDrop={(e) => { if (dropDevice(e, scene.id)) return; e.preventDefault(); dropScene(scene.id); }}
           >
             {editing !== scene.id && <GripVertical size={13} className="grip scene-grip" />}
             {editing === scene.id ? (
@@ -197,13 +245,18 @@ export function ScenesPanel(props: Props) {
         ))}
       </ul>
       {active && (
-        <>
+        <div
+          className={`scene-sources ${deviceOver === active.id ? 'scene-sources-device-over' : ''}`}
+          {...deviceDropHandlers(active.id)}
+          onDragOver={(e) => { deviceOverScene(e, active.id); }}
+          onDrop={(e) => { dropDevice(e, active.id); }}
+        >
           <div className="sources-head">
             <h3 className="group-title">Fontes do programa · {active.name}</h3>
             <button type="button" className="icon-btn" aria-label="Nova pasta" data-tip="Nova pasta: arraste fontes para dentro para organizar" onClick={newFolder}><FolderPlus size={15} /></button>
           </div>
           {listed.length === 0 && (active.folders ?? []).length === 0 && (
-            <p className="empty-text">Use “Adicionar à cena” ou “Adicionar ao mixer” nos dispositivos.</p>
+            <p className="empty-text">Arraste a miniatura de um dispositivo para cá (ou para o nome de uma cena), ou use “Adicionar à cena”.</p>
           )}
           <ul className="source-list">
             {rows(active).map((row) => {
@@ -271,7 +324,7 @@ export function ScenesPanel(props: Props) {
               );
             })}
           </ul>
-        </>
+        </div>
       )}
     </section>
   );

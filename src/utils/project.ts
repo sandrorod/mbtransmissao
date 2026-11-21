@@ -79,6 +79,13 @@ export function ensureSource(project: Project, kind: DeviceKind, ref: DeviceRef,
 }
 
 /** Coloca a fonte do dispositivo na cena (sem duplicar). */
+/** O dispositivo já está na cena (como fonte do mesmo tipo)? Serve para não duplicar ao arrastar para a cena. */
+export function sceneHasDevice(project: Project, sceneId: string, kind: DeviceKind, ref: DeviceRef, devices: SystemDevice[]): boolean {
+  const source = findSource(project, kind, ref, devices);
+  const scene = project.scenes.find((s) => s.id === sceneId);
+  return Boolean(source && scene?.items.some((i) => i.sourceId === source.id));
+}
+
 export function addToScene(project: Project, sceneId: string, kind: DeviceKind, ref: DeviceRef, devices: SystemDevice[]): Project {
   const { project: next, source } = ensureSource(project, kind, ref, devices);
   const isWidget = (id: string) => next.sources.find((x) => x.id === id)?.device.deviceId.startsWith('pagina:') ?? false;

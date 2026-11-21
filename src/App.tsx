@@ -13,7 +13,7 @@ import { WidgetDialog, WidgetsPanel } from './components/Widgets';
 import { MissingDevicesDialog, PermissionBar, Toasts, type Toast } from './components/Notices';
 import { MixerPanel } from './components/MixerPanel';
 import { AccountChip } from './components/Account';
-import { ScenesPanel, type SourceStatus } from './components/ScenesPanel';
+import { ScenesPanel, type DeviceDrag, type SourceStatus } from './components/ScenesPanel';
 import { SelectionPanel } from './components/SelectionPanel';
 import { AudioSettingsDialog, VideoSettingsDialog } from './components/SettingsDialogs';
 import { PreviewPanel, ProgramPanel } from './components/StagePanel';
@@ -27,7 +27,7 @@ import { Compositor, fillTransform } from './program/compositor';
 import { LiveController } from './program/live';
 import { liveStore, sameLiveCore, useLiveMetrics } from './program/liveStore';
 import { DEFAULT_AUDIO, DEFAULT_LAYOUT, isYoutubeDestination, DEFAULT_VIDEO, EMPTY_PREFERENCES, OUTPUT_PRESETS, PANEL_IDS, ROLES, type AccountView, type Border, type DeviceKind, type Layout, type PanelColumn, type PanelId, type DeviceRef, type LiveExtras, type LiveStatus, type MediaAccess, type Preferences, type Project, type SceneItem, type Source, type Transform, type VideoMode, type WebPage } from './types/studio';
-import { addToScene, createProject, ensureSource, findSource, isVirtualDevice, missingDevices, newId, realDevices, refOf, removeDeviceSources, removeSource, replaceDevice, updateDeviceIds, type MissingItem } from './utils/project';
+import { addToScene, sceneHasDevice, createProject, ensureSource, findSource, isVirtualDevice, missingDevices, newId, realDevices, refOf, removeDeviceSources, removeSource, replaceDevice, updateDeviceIds, type MissingItem } from './utils/project';
 import { validatePreferences } from './utils/validate';
 
 const api = () => window.studio;
@@ -537,6 +537,21 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     if (!project || !activeScene) return;
     setProject(addToScene(project, activeScene.id, kind, refOf(device), devices));
     notify({ tone: 'ok', icon: 'ok', title: `${displayName(device.label)} na cena ${activeScene.name}` });
+  };
+
+  /** Miniatura solta numa cena (pode ser outra que não a do ar): entra nela, sem duplicar. */
+  const dropDeviceOnScene = (sceneId: string, drag: DeviceDrag) => {
+    const scene = project?.scenes.find((s) => s.id === sceneId);
+    if (!project || !scene) return;
+    const ref = { deviceId: drag.deviceId, label: drag.label };
+    const name = displayName(drag.label);
+    if (sceneHasDevice(project, sceneId, drag.kind, ref, devices)) {
+      notify({ tone: 'warn', icon: 'alert', title: `${name} já está na cena ${scene.name}`, text: 'Cada dispositivo entra uma vez em cada cena.' });
+      return;
+    }
+    setProject(addToScene(project, sceneId, drag.kind, ref, devices));
+    const others = project.scenes.filter((s) => s.id !== sceneId && sceneHasDevice(project, s.id, drag.kind, ref, devices)).length;
+    notify({ tone: 'ok', icon: 'ok', title: `${name} na cena ${scene.name}`, text: others ? `Também está em ${others} ${others === 1 ? 'outra cena' : 'outras cenas'}, com a mesma captura.` : undefined });
   };
 
   const openSettings = (device: SystemDevice, kind: DeviceKind) => {
@@ -1113,6 +1128,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
           setProject({ ...project, scenes, activeSceneId: project.activeSceneId === id ? scenes[0]?.id ?? null : project.activeSceneId });
         }}
         onRemoveSource={removeFromScene}
+        onDropDevice={dropDeviceOnScene}
         onSourceSettings={(s) => {
           if (s.device.deviceId.startsWith('pagina:')) {
             const page = project.pages.find((p) => `pagina:${p.id}` === s.device.deviceId);

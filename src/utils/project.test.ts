@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_PREFERENCES, type Project } from '../types/studio';
-import { addToScene, createProject } from './project';
+import { addToScene, createProject, sceneHasDevice } from './project';
 
 const cam = { deviceId: 'cam-1', groupId: 'g', label: 'Câmera FaceTime HD', kind: 'videoinput' as const };
 const phone = { deviceId: 'celular:abc:video', groupId: 'abc', label: 'Android (celular)', kind: 'videoinput' as const };
@@ -72,5 +72,24 @@ describe('borda da fonte', () => {
     p = { ...p, sources: p.sources.map((s) => ({ ...s, staged: { transform: null, border: null } })) };
     p = addToScene(p, scene, 'video', ref, devices);
     expect(p.scenes[0].items[0].border).toBeNull();
+  });
+});
+
+describe('arrastar dispositivo para a cena', () => {
+  it('a mesma fonte vai para várias cenas e não duplica na mesma cena', () => {
+    let p = base();
+    const a = p.scenes[0].id;
+    p = { ...p, scenes: [...p.scenes, { id: 'b', name: 'CENA 2', items: [] }] };
+    const ref = { deviceId: cam.deviceId, label: cam.label };
+    expect(sceneHasDevice(p, a, 'video', ref, devices)).toBe(false);
+    p = addToScene(p, a, 'video', ref, devices);
+    expect(sceneHasDevice(p, a, 'video', ref, devices)).toBe(true);
+    expect(sceneHasDevice(p, 'b', 'video', ref, devices)).toBe(false);
+    p = addToScene(p, 'b', 'video', ref, devices);
+    p = addToScene(p, 'b', 'video', ref, devices);
+    expect(p.sources).toHaveLength(1);
+    expect(p.scenes.map((s) => s.items.map((i) => i.sourceId))).toEqual([[p.sources[0].id], [p.sources[0].id]]);
+    // Vídeo e áudio do mesmo aparelho são fontes diferentes.
+    expect(sceneHasDevice(p, a, 'audio', ref, devices)).toBe(false);
   });
 });

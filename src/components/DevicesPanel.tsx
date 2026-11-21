@@ -9,6 +9,7 @@ import { phones, type PhoneStats } from '../phone/phones';
 import { videoConstraints } from '../devices/videoOptions';
 import { DEFAULT_VIDEO, type Source, type VideoMode, type WebPage } from '../types/studio';
 import { LevelBar, Modal, StatusTag, VideoView } from './common';
+import { startDeviceDrag, type DeviceDrag } from './ScenesPanel';
 
 /** Pico de uma entrada (para os medidores); devolve -Infinity enquanto não há sinal. */
 export function useLevel(stream: MediaStream | null): () => number {
@@ -75,7 +76,7 @@ export function RenameField({ label, onRename, onDone, className = '', persisten
   );
 }
 
-function Card({ icon, name, title, status, expanded, onToggle, highlight, missing, renaming, onStartRename, onRename, onRenameDone, children }: {
+function Card({ icon, name, title, status, expanded, onToggle, highlight, missing, renaming, onStartRename, onRename, onRenameDone, drag, children }: {
   icon: ReactNode;
   name: string;
   title: string;
@@ -88,10 +89,16 @@ function Card({ icon, name, title, status, expanded, onToggle, highlight, missin
   onStartRename?: () => void;
   onRename?: (name: string) => void;
   onRenameDone?: () => void;
+  /** Dá para arrastar o cartão para uma cena (null = não, ex.: desconectado). */
+  drag?: DeviceDrag | null;
   children: ReactNode;
 }) {
   return (
-    <li className={`device-card ${expanded ? 'device-card-open' : ''} ${highlight ? 'device-card-on' : ''} ${missing ? 'device-card-missing' : ''}`}>
+    <li
+      className={`device-card ${expanded ? 'device-card-open' : ''} ${highlight ? 'device-card-on' : ''} ${missing ? 'device-card-missing' : ''}`}
+      draggable={Boolean(drag) && !renaming}
+      onDragStart={(e) => { if (drag) startDeviceDrag(e, drag); }}
+    >
       {renaming && onRename && onRenameDone ? (
         <div className="device-head">
           <ChevronDown size={14} className="chevron" />
@@ -192,7 +199,12 @@ function VideoTile(p: VideoTileProps) {
   const web = isPage(device.deviceId);
   const name = displayName(device.label) || 'Câmera sem nome';
   return (
-    <li className={`video-tile ${p.previewing ? 'video-tile-on' : ''} ${!present ? 'video-tile-missing' : ''} ${p.replay === false ? 'video-tile-noreplay' : ''}`}>
+    <li
+      className={`video-tile ${p.previewing ? 'video-tile-on' : ''} ${!present ? 'video-tile-missing' : ''} ${p.replay === false ? 'video-tile-noreplay' : ''}`}
+      draggable={present && !renaming && !info}
+      onDragStart={(e) => startDeviceDrag(e, { deviceId: device.deviceId, label: device.label, kind: 'video' })}
+      title={present ? 'Arraste para uma cena para colocá-lo nela' : undefined}
+    >
       <div className="tile-screen" onDoubleClick={p.onPreview} title="Dois cliques para pôr ou tirar da prévia">
         {present && <input type="checkbox" className="tile-check" checked={p.checked} aria-label={`Selecionar ${name}`} onChange={(e) => p.onCheck(e.target.checked)} onDoubleClick={(e) => e.stopPropagation()} />}
         {present ? <VideoView pooled={pooled} settings={p.source?.video} compact /> : <div className="tile-off">Desconectado</div>}
@@ -274,7 +286,7 @@ function AudioCard(p: AudioCardProps) {
   const status = !present ? 'desconectado' : pooled.status === 'abrindo' || pooled.status === 'falhou' ? pooled.status : 'conectado';
   const phone = isPhone(device.deviceId);
   return (
-    <Card icon={phone ? <Smartphone size={15} /> : <Mic size={15} />} name={displayName(device.label) || 'Entrada sem nome'} title={device.label} status={status} expanded={p.expanded} onToggle={p.onToggle} highlight={p.testing} missing={!present} renaming={renaming} onStartRename={() => setRenaming(true)} onRename={p.onRename} onRenameDone={() => setRenaming(false)}>
+    <Card icon={phone ? <Smartphone size={15} /> : <Mic size={15} />} name={displayName(device.label) || 'Entrada sem nome'} title={device.label} status={status} expanded={p.expanded} onToggle={p.onToggle} highlight={p.testing} missing={!present} renaming={renaming} onStartRename={() => setRenaming(true)} onRename={p.onRename} onRenameDone={() => setRenaming(false)} drag={present ? { deviceId: device.deviceId, label: device.label, kind: 'audio' } : null}>
       <dl className="device-specs">
         <dt>Tipo</dt><dd>{phone ? 'Microfone do celular' : audioType(device.label)}</dd>
         {channels ? <><dt>Canais</dt><dd>{channels}</dd></> : null}
