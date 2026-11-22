@@ -1,4 +1,4 @@
-import { type ChromaKey, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, type MediaLook, DEFAULT_MEDIA_EFFECTS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../types/studio';
+import { type ChromaKey, DEFAULT_PHONE_QUALITY, DEFAULT_TILE_SCALE, TILE_SCALE_MAX, TILE_SCALE_MIN, type PhoneQuality, ASPECTS, DEFAULT_REPLAY_SECONDS, DEFAULT_TRANSITION, INTRO_EXTENSIONS, TRANSITIONS, type ReplayIntro, type ReplayTransition, type ZoneSpans, REPLAY_MAX, REPLAY_MIN, type ClosedPanel, type PanelColumn, type SceneFolder, type ZoneId, DEFAULT_AUDIO, DEFAULT_CHROMA, DEFAULT_HUD, DEFAULT_LAYOUT, DEFAULT_OUTPUT, OLD_DEFAULT_BITRATE, PANEL_IDS, DEFAULT_VIDEO, EMPTY_PREFERENCES, ROLES, ROTATIONS, type AudioSettings, type DeviceRef, type Layout, type OutputSettings, type PanelId, type LayoutFile, type ProgramHud, type WindowState, type Preferences, type Project, type SceneItem, type Source, type Border, BORDER_STYLES, type Transform, type TurnServer, type WebPage, type MediaItem, type MediaLook, DEFAULT_MEDIA_EFFECTS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../types/studio';
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown, max = 300) => typeof v === 'string' && v.length <= max;
@@ -229,11 +229,17 @@ export function validatePreferences(value: unknown): Preferences {
       monitorOutput: deviceRef(value.monitorOutput),
       hidden: Array.isArray(value.hidden) ? value.hidden.filter((h): h is string => text(h)).slice(0, 200) : [],
       replayOff: Array.isArray(value.replayOff) ? value.replayOff.filter((h): h is string => text(h)).slice(0, 200) : [],
+      soundOff: Array.isArray(value.soundOff) ? value.soundOff.filter((h): h is string => text(h)).slice(0, 200) : [],
       programFirst: value.programFirst === true,
       selectionOpen: value.selectionOpen === true,
       output: output(value.output),
       publicAddress: typeof value.publicAddress === 'string' && (value.publicAddress === '' || validPageUrl(value.publicAddress)) ? value.publicAddress : '',
       turn: turnServer(value.turn),
+      remoteMode: value.remoteMode === 'servidor' ? 'servidor' : 'cloudflare',
+      phoneQuality: phoneQuality(value.phoneQuality),
+      masterDevice: text(value.masterDevice) && (value.masterDevice as string).trim() ? value.masterDevice as string : null,
+      overlayDevices: Array.isArray(value.overlayDevices) ? value.overlayDevices.filter((h): h is string => text(h)).slice(0, 100) : [],
+      tileScale: num(value.tileScale, TILE_SCALE_MIN, TILE_SCALE_MAX) ? Math.round((value.tileScale as number) * 100) / 100 : DEFAULT_TILE_SCALE,
       names: names(value.names),
       layout: layout(value.layout),
       hud: hudOf(value.hud),
@@ -245,6 +251,13 @@ export function validatePreferences(value: unknown): Preferences {
   } catch {
     return { ...EMPTY_PREFERENCES };
   }
+}
+
+/** Qualidade pedida aos celulares: teto de 2 a 20 Mbps e uma das três prioridades. */
+export function phoneQuality(v: unknown): PhoneQuality {
+  if (!isObject(v)) return { ...DEFAULT_PHONE_QUALITY };
+  const priority = v.priority === 'nitidez' || v.priority === 'fluidez' || v.priority === 'equilibrio' ? v.priority : DEFAULT_PHONE_QUALITY.priority;
+  return { mbps: num(v.mbps, 2, 20) ? Math.round(v.mbps as number) : DEFAULT_PHONE_QUALITY.mbps, priority };
 }
 
 /** Qualidade da transmissão: só valores que viram parâmetros seguros do FFmpeg. */

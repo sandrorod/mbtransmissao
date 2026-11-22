@@ -1,0 +1,9 @@
+{
+  "name": "camera-relay",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Ponte dos celulares do Estúdio ao Vivo no domínio próprio (repassa a conexão; o vídeo não passa por aqui)",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node server.mjs" }
+}

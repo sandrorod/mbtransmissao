@@ -5,7 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import selfsigned from 'selfsigned';
 import { PHONE_PAGE_HTML, PHONE_PAGE_SCRIPT } from '../../src/phone/page';
-import type { PhoneEvent, PhoneInfo } from '../../src/types/studio';
+import type { PhoneEvent, PhoneInfo, PhoneSenderStats } from '../../src/types/studio';
 
 interface Phone {
   id: string;
@@ -62,6 +62,16 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** O que o próprio celular diz que está mandando (só números e um motivo conhecido). */
+export function senderStats(value: unknown): PhoneSenderStats | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Record<string, unknown>;
+  const n = (x: unknown, max: number) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.min(Math.round(x), max) : 0);
+  const reasons = ['none', 'cpu', 'bandwidth', 'other'] as const;
+  const limit = reasons.find((r) => r === v.limit) ?? 'none';
+  return { width: n(v.width, 8000), height: n(v.height, 8000), fps: n(v.fps, 240), kbps: n(v.kbps, 200000), targetKbps: n(v.targetKbps, 200000), limit, rttMs: n(v.rttMs, 60000), battery: typeof v.battery === 'number' && v.battery >= 0 && v.battery <= 1 ? Math.round(v.battery * 100) : null, charging: v.charging === true };
+}
+
 const clean = (text: unknown, max: number) => (typeof text === 'string' ? text.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max) : '');
 
 /**
@@ -86,6 +96,11 @@ export class PhoneServer {
 
   get token(): string {
     return this.stored?.token ?? '';
+  }
+
+  /** Certificado do servidor (a ponte do domínio próprio confere a conexão local com ele). */
+  get certificate(): string {
+    return this.stored?.cert ?? '';
   }
 
   get replayToken(): string {
@@ -382,6 +397,19 @@ export class PhoneServer {
       if (message.t === 'nome') {
         phone.name = clean(message.nome, 40) || phone.name;
         this.emit({ t: 'nome', id: phone.id, nome: phone.name });
+      }
+      if (message.t === 'chat') {
+        const texto = clean(message.texto, 500);
+        if (texto) this.emit({ t: 'chat', id: phone.id, texto });
+      }
+      if (message.t === 'ouvir') this.emit({ t: 'ouvir', id: phone.id, on: message.on === true });
+      if (message.t === 'falha') {
+        const texto = clean(message.texto, 300);
+        if (texto) this.emit({ t: 'falha', id: phone.id, texto });
+      }
+      if (message.t === 'estat') {
+        const sent = senderStats(message.dados);
+        if (sent) this.emit({ t: 'estat', id: phone.id, dados: sent });
       }
       res.writeHead(204).end();
     });

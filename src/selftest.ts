@@ -148,7 +148,7 @@ export async function runSelfTest(): Promise<void> {
 
 declare global {
   interface Window {
-    studioTest: { openPhone(url: string): Promise<void>; phoneStatus(): Promise<string | null> };
+    studioTest: { openPhone(url: string): Promise<void>; phoneStatus(): Promise<string | null>; phoneEval(js: string): Promise<unknown> };
   }
 }
 
@@ -206,12 +206,75 @@ export async function runE2E(): Promise<void> {
     report.link = { rodando: link.running, porta: link.port, enderecos: link.urls.length, erro: link.error };
     const url = link.urls[0]?.replace(/https:\/\/[^:/]+/, 'https://127.0.0.1') ?? '';
     await window.studioTest.openPhone(url);
-    const phoneDevice = await until(() => phones.devices().find((d) => d.kind === 'videoinput'), 20000);
+    const phoneDevice = await until(() => phones.devices().find((d) => d.kind === 'videoinput'), 90000);
     report.celularNaLista = phoneDevice ? { nome: phoneDevice.label, id: phoneDevice.deviceId.slice(0, 20) } : null;
     report.celularAudio = phones.devices().some((d) => d.kind === 'audioinput');
     report.statusNoCelular = await window.studioTest.phoneStatus();
     await wait(5000);
     report.recepcaoCelular = phones.list()[0]?.stats ?? null;
+    // 1a. Qualidade pedida pelo Estúdio e o relato do próprio celular (a cada 5 s).
+    try {
+      phones.setQuality({ mbps: 10, priority: 'nitidez' });
+      await wait(6500);
+      const sent = phones.list()[0]?.stats?.sent ?? null;
+      const peers = [...((phones as unknown as { peers: Map<string, { pc: RTCPeerConnection | null }> }).peers.values())];
+      const inbound: Record<string, unknown>[] = [];
+      for (const p of peers) (await p.pc?.getStats())?.forEach((r: Record<string, unknown>) => { if (r.type === 'inbound-rtp') inbound.push({ kind: r.kind, framesDecoded: r.framesDecoded, fps: r.framesPerSecond }); });
+      report.conexao = { estudio: peers.map((p) => p.pc?.connectionState ?? 'sem pc'), celular: await window.studioTest.phoneEval('window.estudioConexao || null'), inbound };
+      report.qualidadeCelular = { relato: sent, ajusteNoCelular: await window.studioTest.phoneEval('window.estudioAjuste || null'), recebendo: phones.list()[0]?.stats ?? null };
+    } catch (e) {
+      report.qualidadeCelular = { erro: errorText(e) };
+    }
+
+    // 1b. Celular no Programa (verde + AO VIVO), chat nos dois sentidos e "Ouvir transmissão" (som do Programa).
+    try {
+      const phoneId = phones.list()[0]?.id ?? '';
+      const ev = window.studioTest.phoneEval;
+      phones.setOnAir([phoneId]);
+      await wait(800);
+      const noAr = await ev("document.documentElement.classList.contains('on-air') && getComputedStyle(document.getElementById('onair')).display !== 'none'");
+      phones.setOnAir([]);
+      await wait(800);
+      const foraDoAr = await ev("!document.documentElement.classList.contains('on-air')");
+      await ev("document.getElementById('chat').click(); document.getElementById('text').value = 'Olá do celular'; document.getElementById('send').requestSubmit(); true");
+      await wait(800);
+      const chegouNoEstudio = phones.chatOf(phoneId).map((m) => `${m.from}:${m.text}`);
+      const naoLidas = phones.unreadOf(phoneId);
+      await ev("document.getElementById('chat-close').click(); true");
+      phones.sendChat(phoneId, 'Resposta do Estúdio');
+      await wait(800);
+      const noCelular = await ev("({ texto: document.getElementById('msgs').textContent, naoLidas: document.getElementById('unread').textContent, piscando: document.getElementById('chat').classList.contains('alert'), animacao: getComputedStyle(document.getElementById('chat')).animationName })");
+      // Tom de 440 Hz no mixer = som do Programa.
+      const ctx = new AudioContext();
+      const osc = ctx.createOscillator();
+      const dest = ctx.createMediaStreamDestination();
+      osc.connect(dest);
+      osc.start();
+      const { DEFAULT_AUDIO } = await import('./types/studio');
+      mixer.update('teste-tom', dest.stream, DEFAULT_AUDIO);
+      phones.setProgramAudio(() => mixer.programStream().getAudioTracks()[0] ?? null);
+      // "Ouvir transmissão" já vem ligado: não clica, só espera o som chegar.
+      await wait(2500);
+      const somNoCelular = await ev(`(async () => {
+        const el = document.getElementById('program');
+        const s = el.srcObject;
+        if (!s) return 'sem trilha';
+        const c = new AudioContext();
+        const a = c.createAnalyser();
+        c.createMediaStreamSource(s).connect(a);
+        await new Promise((r) => setTimeout(r, 1200));
+        const d = new Float32Array(a.fftSize);
+        a.getFloatTimeDomainData(d);
+        let peak = 0; for (const v of d) peak = Math.max(peak, Math.abs(v));
+        return { tocando: !el.paused, pico: Math.round(peak * 1000) / 1000, botao: document.getElementById('listen').textContent, medidor: document.getElementById('meter-fill').style.width };
+      })()`);
+      await ev("document.getElementById('listen').click(); true");
+      mixer.remove('teste-tom');
+      osc.stop();
+      report.celularExtras = { noAr, foraDoAr, chegouNoEstudio, naoLidas, noCelular, somNoCelular };
+    } catch (e) {
+      report.celularExtras = { erro: errorText(e) };
+    }
 
     // 2. Fonte do celular pelo pool + página da web.
     const phoneKey = phoneDevice ? pool.acquire({ kind: 'video', deviceId: phoneDevice.deviceId, label: phoneDevice.label, constraints: {} }) : null;
@@ -313,6 +376,15 @@ export async function runE2E(): Promise<void> {
       trilhasCriadas: calls,
       registro: (await api.readLiveLog()).split('\n').filter((l) => l.includes('tela:') || l.includes('estado:')).map((l) => l.slice(25, 170)),
     };
+
+    // 4b. Imagem do celular para de chegar (câmera parada): conta como parada em ~2 s, para o master assumir.
+    if (phoneDevice) {
+      const antes = phones.isStalled(phoneDevice.deviceId);
+      await window.studioTest.phoneEval("document.getElementById('preview').srcObject.getVideoTracks().forEach((t) => t.stop()); true");
+      const t0 = performance.now();
+      const parou = await until(() => phones.isStalled(phoneDevice.deviceId) || null, 8000);
+      report.imagemParada = { antes, detectou: Boolean(parou), ms: Math.round(performance.now() - t0) };
+    }
 
     // 5. Remover o celular: ele é avisado e sai da lista.
     if (phoneDevice) {

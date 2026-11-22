@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Clapperboard, Ear, Eye, EyeOff, Globe, Info, Mic, Pencil, Play, Plus, Square, QrCode, RefreshCw, RotateCcw, Search, Settings2, SlidersHorizontal, Smartphone, SwitchCamera, Trash2, Video } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clapperboard, Ear, Eye, EyeOff, Globe, Info, Maximize2, MessageCircle, Minimize2, Mic, Pencil, Send, Play, Plus, Square, QrCode, RefreshCw, RotateCcw, Search, Settings2, SlidersHorizontal, Smartphone, SwitchCamera, Trash2, Video, Volume2, VolumeX } from 'lucide-react';
 import { audioConstraints, LevelMeter, mixer } from '../audio/engine';
 import { usefulFps } from '../devices/avfoundation';
 import { audioType, baseName, displayName, videoType, type SystemDevice } from '../devices/identify';
@@ -7,7 +7,7 @@ import { pool, usePooledStream } from '../devices/pool';
 import { SelectAll, SelectionBar, type GroupActions } from './SelectionBar';
 import { phones, type PhoneStats } from '../phone/phones';
 import { videoConstraints } from '../devices/videoOptions';
-import { DEFAULT_VIDEO, type Source, type VideoMode, type WebPage } from '../types/studio';
+import { DEFAULT_TILE_SCALE, DEFAULT_VIDEO, TILE_SCALE_MAX, TILE_SCALE_MIN, type Source, type VideoMode, type WebPage } from '../types/studio';
 import { LevelBar, Modal, StatusTag, VideoView } from './common';
 import { startDeviceDrag, type DeviceDrag } from './ScenesPanel';
 
@@ -141,6 +141,11 @@ interface VideoTileProps {
   /** Câmera/celular que pode gravar replay (null = não se aplica: página da web, câmera virtual). */
   replay: boolean | null;
   onReplay: (on: boolean) => void;
+  /** Som do dispositivo (null = não tem som próprio). read = nível no mixer, em dBFS. */
+  sound: { on: boolean; read: () => number } | null;
+  onSound: (on: boolean) => void;
+  /** Master (assume o Programa vazio) ou sobreposição (entra por cima). */
+  role: 'master' | 'overlay' | null;
 }
 
 /** Situação de um aparelho de vídeo pelo que está aberto no pool. */
@@ -175,9 +180,63 @@ function VideoSpecs({ device, modes, page, stats, track }: { device: SystemDevic
           <dd className={stats.lost >= 2 ? 'warn-text' : ''}>{stats.codec || '—'} · {(stats.kbps / 1000).toFixed(1).replace('.', ',')} Mbps · perda {String(stats.lost).replace('.', ',')}%{stats.freezes ? ` · ${stats.freezes} travadas` : ''}</dd>
         </>
       )}
+      {phone && stats?.sent && (
+        <>
+          <dt>Celular envia</dt>
+          <dd className={stats.sent.limit !== 'none' ? 'warn-text' : ''}>
+            {stats.sent.width}×{stats.sent.height} · {stats.sent.fps} fps · {(stats.sent.kbps / 1000).toFixed(1).replace('.', ',')} Mbps
+            {stats.sent.limit === 'cpu' ? ' · reduzido: processador/calor do celular' : stats.sent.limit === 'bandwidth' ? ' · reduzido: rede Wi‑Fi' : stats.sent.limit === 'other' ? ' · reduzido' : ''}
+          </dd>
+          {stats.sent.battery !== null && <><dt>Bateria</dt><dd>{stats.sent.battery}%{stats.sent.charging ? ' · carregando' : ''}</dd></>}
+        </>
+      )}
       {phone && !stats && <><dt>Recebendo</dt><dd>Conectando…</dd></>}
       {!phone && track?.width ? <><dt>Recebendo</dt><dd>{track.width}×{track.height}{track.frameRate ? ` · ${Math.round(track.frameRate)} fps` : ''}</dd></> : null}
     </dl>
+  );
+}
+
+/** Botão do chat do celular, com o número de mensagens não lidas. */
+function PhoneChatButton({ deviceId, onOpen }: { deviceId: string; onOpen: () => void }) {
+  useSyncExternalStore(phones.subscribeChat, phones.getChatVersion);
+  const unread = phones.unreadOf(deviceId);
+  return (
+    <button type="button" className={`icon-btn tile-btn tile-chat-btn ${unread ? 'icon-btn-on' : ''}`} onClick={onOpen} aria-label={unread ? `Chat: ${unread} mensagens novas` : 'Chat com o celular'} title="Chat com quem está no celular">
+      <MessageCircle size={14} />
+      {unread > 0 && <span className="tile-chat-badge">{unread > 9 ? '9+' : unread}</span>}
+    </button>
+  );
+}
+
+/** Conversa com um celular: ler e responder. */
+function PhoneChat({ deviceId, name, onClose }: { deviceId: string; name: string; onClose: () => void }) {
+  useSyncExternalStore(phones.subscribeChat, phones.getChatVersion);
+  const messages = phones.chatOf(deviceId);
+  const [text, setText] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { phones.markRead(deviceId); }, [deviceId, messages.length]);
+  useEffect(() => { const el = listRef.current; if (el) el.scrollTop = el.scrollHeight; }, [messages.length]);
+  const send = () => {
+    if (!text.trim()) return;
+    phones.sendChat(deviceId, text);
+    setText('');
+  };
+  return (
+    <Modal title={`Chat · ${name}`} onClose={onClose}>
+      <div className="phone-chat" ref={listRef}>
+        {messages.length === 0 && <p className="empty-text">Nenhuma mensagem ainda. O que você escrever aparece no celular.</p>}
+        {messages.map((m, i) => (
+          <div key={i} className={`phone-chat-msg ${m.from === 'estudio' ? 'phone-chat-me' : 'phone-chat-them'}`}>
+            <small>{m.from === 'estudio' ? 'Estúdio' : name} · {new Date(m.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</small>
+            {m.text}
+          </div>
+        ))}
+      </div>
+      <form className="phone-chat-send" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input className="field" value={text} maxLength={500} autoFocus placeholder="Escreva para o celular" onChange={(e) => setText(e.target.value)} />
+        <button type="submit" className="btn btn-primary" disabled={!text.trim()}><Send size={13} /> Enviar</button>
+      </form>
+    </Modal>
   );
 }
 
@@ -191,6 +250,7 @@ function VideoTile(p: VideoTileProps) {
   const { status, track } = useVideoStatus(device, present);
   const [info, setInfo] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [chatting, setChatting] = useState(false);
   const spec = present
     ? (p.source ? videoSpecOf(p.source) : { kind: 'video' as const, deviceId: device.deviceId, label: device.label, constraints: videoConstraints(DEFAULT_VIDEO) })
     : null;
@@ -201,7 +261,7 @@ function VideoTile(p: VideoTileProps) {
   return (
     <li
       className={`video-tile ${p.previewing ? 'video-tile-on' : ''} ${!present ? 'video-tile-missing' : ''} ${p.replay === false ? 'video-tile-noreplay' : ''}`}
-      draggable={present && !renaming && !info}
+      draggable={present && !renaming && !info && !chatting}
       onDragStart={(e) => startDeviceDrag(e, { deviceId: device.deviceId, label: device.label, kind: 'video' })}
       title={present ? 'Arraste para uma cena para colocá-lo nela' : undefined}
     >
@@ -209,7 +269,9 @@ function VideoTile(p: VideoTileProps) {
         {present && <input type="checkbox" className="tile-check" checked={p.checked} aria-label={`Selecionar ${name}`} onChange={(e) => p.onCheck(e.target.checked)} onDoubleClick={(e) => e.stopPropagation()} />}
         {present ? <VideoView pooled={pooled} settings={p.source?.video} compact /> : <div className="tile-off">Desconectado</div>}
         <span className={`tile-dot status-${status}`} title={status}><i /></span>
+        {p.role && <span className={`tile-role tile-role-${p.role}`} title={p.role === 'master' ? 'Master: assume o Programa quando ele fica sem câmera' : 'Sobreposição: entra por cima, sem tirar quem está no ar'}>{p.role === 'master' ? 'MASTER' : 'SOBREPÕE'}</span>}
         {p.replay !== null && <span className={`tile-replay ${p.replay ? 'tile-replay-on' : ''}`} title={p.replay ? 'Grava replay durante a transmissão' : 'Replay desligado: não grava replay'}>{p.replay ? 'REPLAY' : 'SEM REPLAY'}</span>}
+        {p.sound?.on && <div className="tile-level"><LevelBar read={p.sound.read} /></div>}
         <button type="button" className="tile-info" onClick={() => setInfo(true)} aria-label={`Informações de ${name}`} title="Informações do dispositivo"><Info size={13} /></button>
       </div>
       {renaming ? (
@@ -230,6 +292,18 @@ function VideoTile(p: VideoTileProps) {
           <button type="button" className="icon-btn tile-btn" onClick={p.onAdd} disabled={!present} aria-label="Adicionar à cena" title="Adicionar à cena"><Play size={14} /></button>
         )}
         {phone && <button type="button" className="icon-btn tile-btn" onClick={p.onFlip} disabled={!present} aria-label="Trocar câmera" title="Alterna entre a câmera traseira e a frontal do celular"><SwitchCamera size={14} /></button>}
+        <button
+          type="button"
+          className={`icon-btn tile-btn ${p.sound && !p.sound.on ? 'tile-btn-muted' : ''}`}
+          disabled={!p.sound}
+          aria-pressed={p.sound ? !p.sound.on : undefined}
+          onClick={() => p.sound && p.onSound(!p.sound.on)}
+          aria-label={!p.sound ? `${name} não tem som` : p.sound.on ? `Desligar o som de ${name}` : `Ligar o som de ${name}`}
+          title={!p.sound ? 'Este dispositivo não tem som próprio' : p.sound.on ? 'Som ligado: clique para silenciar' : 'Som desligado: clique para ligar'}
+        >
+          {p.sound && !p.sound.on ? <VolumeX size={14} /> : <Volume2 size={14} />}
+        </button>
+        {phone && <PhoneChatButton deviceId={device.deviceId} onOpen={() => setChatting(true)} />}
         {web && <button type="button" className="icon-btn tile-btn" onClick={p.onReload} aria-label="Recarregar" title="Recarregar a página"><RotateCcw size={14} /></button>}
         {p.replay !== null && (
           <button type="button" className={`icon-btn tile-btn ${p.replay ? 'icon-btn-on' : 'tile-btn-off'}`} aria-pressed={p.replay} onClick={() => p.onReplay(!p.replay)} aria-label={p.replay ? `Desligar o replay de ${name}` : `Ligar o replay de ${name}`} title={p.replay ? 'Replay ligado: clique para não gravar replay deste dispositivo' : 'Replay desligado: clique para gravar replay deste dispositivo'}><Clapperboard size={14} /></button>
@@ -237,6 +311,7 @@ function VideoTile(p: VideoTileProps) {
         <button type="button" className="icon-btn tile-btn" onClick={p.onSettings} aria-label={`Configurações de ${name}`} title="Configurações"><Settings2 size={14} /></button>
         <button type="button" className="icon-btn tile-btn icon-btn-remove" onClick={p.onRemove} aria-label={`Remover ${name}`} title="Remover da lista"><Trash2 size={14} /></button>
       </div>
+      {chatting && <PhoneChat deviceId={device.deviceId} name={name} onClose={() => setChatting(false)} />}
       {info && (
         <Modal title={name} onClose={() => setInfo(false)}>
           <label className="option-field">
@@ -337,11 +412,17 @@ interface Props {
   onSettings: (device: SystemDevice, kind: 'video' | 'audio') => void;
   onRemove: (device: SystemDevice) => void;
   onFlip: (device: SystemDevice) => void;
+  soundOf: (device: SystemDevice) => { on: boolean; read: () => number } | null;
+  onSound: (device: SystemDevice, on: boolean) => void;
   onReloadPage: (device: SystemDevice) => void;
   onRename: (device: SystemDevice, name: string) => void;
   /** Replay ligado neste dispositivo (null = não se aplica). */
   replayOf: (device: SystemDevice) => boolean | null;
   onReplay: (device: SystemDevice, on: boolean) => void;
+  roleOf: (device: SystemDevice) => 'master' | 'overlay' | null;
+  /** Tamanho das miniaturas (barrinha no topo da área). */
+  tileScale: number;
+  onTileScale: (scale: number) => void;
 }
 
 export function DevicesPanel(props: Props) {
@@ -385,6 +466,9 @@ export function DevicesPanel(props: Props) {
       onReload={() => props.onReloadPage(entry.device)}
       replay={props.replayOf(entry.device)}
       onReplay={(on) => props.onReplay(entry.device, on)}
+      role={props.roleOf(entry.device)}
+      sound={props.soundOf(entry.device)}
+      onSound={(on) => props.onSound(entry.device, on)}
     />
   );
 
@@ -392,6 +476,11 @@ export function DevicesPanel(props: Props) {
     <section className="panel devices-panel" aria-label="Dispositivos conectados">
       <header className="panel-head">
         <h2 className="panel-title">Dispositivos conectados</h2>
+        <label className="tile-size" title="Tamanho das miniaturas (dois cliques volta ao padrão)">
+          <Minimize2 size={12} aria-hidden="true" />
+          <input type="range" min={TILE_SCALE_MIN} max={TILE_SCALE_MAX} step={0.02} value={props.tileScale} onChange={(e) => props.onTileScale(Number(e.target.value))} onDoubleClick={() => props.onTileScale(DEFAULT_TILE_SCALE)} aria-label="Tamanho das miniaturas" />
+          <Maximize2 size={12} aria-hidden="true" />
+        </label>
         <div className="add-menu" ref={menuRef}>
           <button type="button" className="btn btn-small btn-primary" onClick={() => setMenu(!menu)} aria-expanded={menu}><Plus size={13} /> Adicionar</button>
           {menu && (
@@ -411,7 +500,7 @@ export function DevicesPanel(props: Props) {
         </h3>
         <SelectionBar actions={props.group} />
         {props.video.length === 0 && <p className="empty-text">Nenhuma câmera, placa de captura ou celular.</p>}
-        <ul className="video-grid">{props.video.map(videoCard)}</ul>
+        <ul className="video-grid" style={{ ['--tile-scale' as string]: String(props.tileScale) }}>{props.video.map(videoCard)}</ul>
 
         <h3 className="group-title">Entradas de áudio <span>{props.audio.filter((e) => e.present).length}</span></h3>
         {props.audio.length === 0 && <p className="empty-text">Nenhuma entrada de áudio.</p>}

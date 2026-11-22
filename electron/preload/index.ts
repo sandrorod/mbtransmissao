@@ -25,7 +25,8 @@ const api: StudioApi = {
   reportSelfTest: (report) => ipcRenderer.invoke(IPC.reportSelfTest, report),
   phoneLink: () => ipcRenderer.invoke(IPC.phoneLink),
   newPhoneLink: () => ipcRenderer.invoke(IPC.newPhoneLink),
-  setPhoneRemote: (on) => ipcRenderer.invoke(IPC.setPhoneRemote, on),
+  setPhoneRemote: (on, mode) => ipcRenderer.invoke(IPC.setPhoneRemote, on, mode),
+  setPhoneRelay: (address, secret) => ipcRenderer.invoke(IPC.setPhoneRelay, address, secret),
   phoneIce: () => ipcRenderer.invoke(IPC.phoneIce),
   onPhoneRemote: (cb) => subscribe(IPC.phoneRemoteChanged, cb),
   phonesReady: () => ipcRenderer.invoke(IPC.phonesReady),
@@ -119,4 +120,5 @@ contextBridge.exposeInMainWorld('studio', api);
 contextBridge.exposeInMainWorld('studioTest', {
   openPhone: (url: string) => ipcRenderer.invoke('e2e:phone', url),
   phoneStatus: () => ipcRenderer.invoke('e2e:phone-status'),
+  phoneEval: (js: string) => ipcRenderer.invoke('e2e:phone-eval', js),
 });

@@ -25,6 +25,7 @@ import { LiveExtrasWatcher } from '../services/liveExtras';
 import { closeAllPages, closePage, openPage, reloadPage, scrollPage } from '../services/pages';
 import { lanAddresses, PhoneServer, type IceServer } from '../services/phoneServer';
 import { RemoteTunnel } from '../services/remoteTunnel';
+import { relayBase, RelayClient } from '../services/relayClient';
 import { MediaFiles, registerMediaScheme } from '../services/mediaFiles';
 import { output as validOutput, validPageUrl } from '../../src/utils/validate';
 import type { PhoneLink, WebPage } from '../../src/types/studio';
@@ -50,6 +51,8 @@ if (SELF_TEST) {
 let mainWindow: BrowserWindow | null = null;
 let phones: PhoneServer | null = null;
 let tunnel: RemoteTunnel | null = null;
+/** Celulares de outra rede pelo domínio próprio (camera-relay no Easypanel). */
+let relay: RelayClient | null = null;
 let e2ePhone: BrowserWindow | null = null;
 let destinations: DestinationStore | null = null;
 let youtube: YoutubeAccounts | null = null;
@@ -525,31 +528,82 @@ function registerIpc(): void {
     if (prefs.turn) list.push({ urls: prefs.turn.urls.split(','), username: prefs.turn.username, credential: prefs.turn.credential });
     return list;
   };
+  /** Chave do servidor próprio: fica só neste computador, cifrada pelo Keychain (não vai para a nuvem). */
+  const relayFile = () => dataFile('servidor-celulares.json');
+  const relaySecret = async (): Promise<string> => {
+    const raw = (await readJson(relayFile())) as { secretEnc?: string } | null;
+    if (!raw?.secretEnc) return '';
+    try {
+      return safeStorage.decryptString(Buffer.from(raw.secretEnc, 'base64'));
+    } catch {
+      return '';
+    }
+  };
+  const relayConfig = async () => {
+    const prefs = validatePreferences(await readJson(userFile('preferencias.json')));
+    const base = relayBase(prefs.publicAddress);
+    const secret = await relaySecret();
+    return base && secret.length >= 16 ? { base, secret } : null;
+  };
+  const remoteLog = (line: string) => void appendFile(dataFile('transmissao.log'), `${new Date().toISOString()} ${line}\n`, 'utf8').catch(() => undefined);
   const link = async (): Promise<PhoneLink> => {
     const prefs = validatePreferences(await readJson(userFile('preferencias.json')));
     if (phones) phones.ice = iceFor(prefs);
     const token = phones?.token ?? '';
-    const base = prefs.publicAddress.replace(/\/+$/, '');
-    const remote = tunnel?.state ?? { state: 'desligado' as const, url: null, message: null };
+    const off = { state: 'desligado' as const, url: null, message: null };
+    // O que estiver ligado manda; desligado, mostra o estado do modo escolhido (erro, por exemplo).
+    const tunnelState = tunnel?.state ?? off;
+    const relayState = relay?.state ?? off;
+    const remote = relayState.state !== 'desligado' && (prefs.remoteMode === 'servidor' || tunnelState.state === 'desligado') ? relayState : tunnelState.state !== 'desligado' ? tunnelState : prefs.remoteMode === 'servidor' ? relayState : tunnelState;
     return {
       urls: phones?.port ? lanAddresses().map((ip) => `https://${ip}:${phones!.port}/c/${token}`) : [],
-      publicUrl: remote.url ? `${remote.url}/c/${token}` : base ? `${base}/c/${token}` : null,
+      publicUrl: remote.state === 'ligado' && remote.url ? `${remote.url}/c/${token}` : null,
+      remoteMode: prefs.remoteMode,
+      relayReady: Boolean(await relayConfig()),
       remote,
       port: phones?.port ?? 0,
       running: Boolean(phones?.port),
       error: phones?.error ?? null,
     };
   };
+  const remoteChanged = () => void link().then((l) => toWindow(IPC.phoneRemoteChanged, l));
   ipcMain.handle(IPC.phoneLink, () => link());
   ipcMain.handle(IPC.newPhoneLink, async () => {
     await phones?.newToken();
     return link();
   });
-  ipcMain.handle(IPC.setPhoneRemote, async (_e, on: unknown) => {
+  ipcMain.handle(IPC.setPhoneRemote, async (_e, on: unknown, mode: unknown) => {
     if (!phones?.port) throw new Error('O servidor dos celulares não está ligado.');
-    tunnel ??= new RemoteTunnel(dataFile('cloudflared'), (line) => void appendFile(dataFile('transmissao.log'), `${new Date().toISOString()} ${line}\n`, 'utf8').catch(() => undefined), () => void link().then((l) => toWindow(IPC.phoneRemoteChanged, l)));
-    if (on === true) void tunnel.start(phones.port);
-    else tunnel.stop();
+    const prefs = validatePreferences(await readJson(userFile('preferencias.json')));
+    const chosen = mode === 'servidor' || mode === 'cloudflare' ? mode : prefs.remoteMode;
+    if (chosen !== prefs.remoteMode) await writeJson(userFile('preferencias.json'), { ...prefs, remoteMode: chosen } satisfies Preferences);
+    tunnel ??= new RemoteTunnel(dataFile('cloudflared'), remoteLog, remoteChanged);
+    relay ??= new RelayClient(relayConfig, () => phones?.certificate ?? '', remoteLog, remoteChanged);
+    // Um caminho por vez: trocar de modo desliga o outro.
+    if (on !== true || chosen !== 'cloudflare') tunnel.stop();
+    if (on !== true || chosen !== 'servidor') relay.stop();
+    if (on === true && chosen === 'cloudflare') void tunnel.start(phones.port);
+    if (on === true && chosen === 'servidor') await relay.start(phones.port);
+    return link();
+  });
+  ipcMain.handle(IPC.setPhoneRelay, async (_e, address: unknown, secret: unknown) => {
+    if (typeof address !== 'string') throw new Error('Endereço inválido.');
+    const clean = address.trim();
+    const base = clean ? relayBase(clean) : '';
+    if (base === null) throw new Error('Use um endereço https:// (ex.: https://camera.seudominio.com.br).');
+    if (typeof secret === 'string') {
+      const key = secret.trim();
+      if (key && (key.length < 16 || key.length > 200)) throw new Error('A chave precisa ter de 16 a 200 caracteres.');
+      await writeJson(relayFile(), key ? { secretEnc: safeStorage.encryptString(key).toString('base64') } : null);
+    }
+    const prefs = validatePreferences(await readJson(userFile('preferencias.json')));
+    await writeJson(userFile('preferencias.json'), { ...prefs, publicAddress: base } satisfies Preferences);
+    markChanged();
+    // Ligado pelo servidor: religa com o endereço/chave novos.
+    if (relay && relay.state.state !== 'desligado' && phones?.port) {
+      relay.stop();
+      await relay.start(phones.port);
+    }
     return link();
   });
   // ----- Transmissões (nova / anteriores) -----
@@ -972,6 +1026,7 @@ function registerIpc(): void {
     await phone.webContents.executeJavaScript("document.getElementById('name').value = 'Celular de teste'; document.getElementById('start').click(); true", true);
     e2ePhone = phone;
   });
+  ipcMain.handle('e2e:phone-eval', async (_e, js: unknown) => (E2E && typeof js === 'string' && e2ePhone && !e2ePhone.isDestroyed() ? e2ePhone.webContents.executeJavaScript(js, true) : null));
   ipcMain.handle('e2e:phone-status', async () => (e2ePhone && !e2ePhone.isDestroyed() ? e2ePhone.webContents.executeJavaScript("document.getElementById('status-text').textContent") : null));
   ipcMain.handle(IPC.reportSelfTest, async (_e, report: unknown) => {
     if (!SELF_TEST) return;
@@ -1180,6 +1235,7 @@ if (!app.requestSingleInstanceLock()) {
     extras?.watch({ stats: false, chat: false });
     live?.stop();
     tunnel?.stop();
+    relay?.stop();
     phones?.stop();
     closeAllPages();
   });

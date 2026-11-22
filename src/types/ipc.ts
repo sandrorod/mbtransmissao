@@ -21,6 +21,7 @@ export const IPC = {
   phoneLink: 'phones:link',
   newPhoneLink: 'phones:new-link',
   setPhoneRemote: 'phones:remote',
+  setPhoneRelay: 'phones:relay',
   phoneIce: 'phones:ice',
   phoneRemoteChanged: 'phones:remote-changed',
   phonesReady: 'phones:ready',

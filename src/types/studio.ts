@@ -284,6 +284,8 @@ export interface Preferences {
   hidden: string[];
   /** Câmeras e celulares com o replay desligado (nome normalizado): continuam na lista e na imagem, mas não gravam replay. */
   replayOff: string[];
+  /** Dispositivos com o som desligado pela miniatura (nome normalizado; widgets/mídias pelo id): mudos no mixer. */
+  soundOff: string[];
   /** Programa em cima da prévia (arrastando um sobre o outro troca). */
   programFirst: boolean;
   /** Painel "Seleção para a transmissão" aberto. */
@@ -293,6 +295,16 @@ export interface Preferences {
   publicAddress: string;
   /** Servidor TURN para o vídeo dos celulares atravessar redes restritas (4G); null = só STUN. */
   turn: TurnServer | null;
+  /** "Celular em outra rede" por: túnel rápido da Cloudflare (link muda) ou o servidor próprio (publicAddress). */
+  remoteMode: 'cloudflare' | 'servidor';
+  /** Qualidade pedida aos celulares. */
+  phoneQuality: PhoneQuality;
+  /** Dispositivo que assume o Programa quando ele fica sem câmera (nome normalizado). */
+  masterDevice: string | null;
+  /** Dispositivos que entram POR CIMA no Programa, sem tirar quem está no ar (nomes normalizados). */
+  overlayDevices: string[];
+  /** Tamanho das miniaturas em Dispositivos (fração de 1/3 da largura). */
+  tileScale: number;
   /** Nomes dados aos dispositivos pelo operador (chave: nome normalizado do aparelho). */
   names: Record<string, string>;
   /** Onde fica cada área da tela e o tamanho dela. */
@@ -468,6 +480,12 @@ export const DEFAULT_OUTPUT: OutputSettings = { width: 1920, height: 1080, fps: 
 /** Padrão antigo: quem ainda está nele passa para o novo (não mexe em quem escolheu outra coisa). */
 export const OLD_DEFAULT_BITRATE = 6000;
 
+export const DEFAULT_PHONE_QUALITY: PhoneQuality = { mbps: 6, priority: 'equilibrio' };
+/** Miniaturas dos dispositivos: 0,64 de 1/3 da largura era o tamanho fixo de antes. */
+export const DEFAULT_TILE_SCALE = 0.64;
+export const TILE_SCALE_MIN = 0.4;
+export const TILE_SCALE_MAX = 3;
+
 export const EMPTY_PREFERENCES: Preferences = {
   camera: null,
   microphone: null,
@@ -475,11 +493,17 @@ export const EMPTY_PREFERENCES: Preferences = {
   monitorOutput: null,
   hidden: [],
   replayOff: [],
+  soundOff: [],
   programFirst: false,
   selectionOpen: false,
   output: DEFAULT_OUTPUT,
   publicAddress: '',
   turn: null,
+  remoteMode: 'cloudflare',
+  phoneQuality: DEFAULT_PHONE_QUALITY,
+  masterDevice: null,
+  overlayDevices: [],
+  tileScale: DEFAULT_TILE_SCALE,
   names: {},
   layout: DEFAULT_LAYOUT,
   hud: { quality: true, viewers: true, chat: false },
@@ -706,6 +730,9 @@ export interface PhoneLink {
   /** Endereços da rede local (o operador escolhe se houver mais de um). */
   urls: string[];
   publicUrl: string | null;
+  /** Por onde "Celular em outra rede" liga e se o servidor próprio já tem endereço e chave. */
+  remoteMode: 'cloudflare' | 'servidor';
+  relayReady: boolean;
   /** Celulares de outra rede (túnel ligado pelo operador). */
   remote: RemoteState;
   port: number;
@@ -718,7 +745,39 @@ export type PhoneEvent =
   | { t: 'entrou'; id: string; nome: string }
   | { t: 'saiu'; id: string }
   | { t: 'nome'; id: string; nome: string }
-  | { t: 'sinal'; id: string; dados: unknown };
+  | { t: 'sinal'; id: string; dados: unknown }
+  /** Mensagem do chat escrita no celular. */
+  | { t: 'chat'; id: string; texto: string }
+  /** O celular ligou/desligou "Ouvir a transmissão" (recebe o som do Programa). */
+  | { t: 'ouvir'; id: string; on: boolean }
+  /** O que o celular está mandando (resolução, quadros, e por que reduziu: processador/calor ou rede). */
+  | { t: 'estat'; id: string; dados: PhoneSenderStats }
+  /** Erro de conexão contado pelo próprio celular (vai para o registro). */
+  | { t: 'falha'; id: string; texto: string };
+
+/** Envio medido no próprio celular (a cada 5 s). */
+export interface PhoneSenderStats {
+  width: number;
+  height: number;
+  fps: number;
+  kbps: number;
+  /** Quanto o WebRTC do celular acha que a rede aguenta agora. */
+  targetKbps: number;
+  /** Por que o celular reduziu a imagem: 'cpu' = processador/calor, 'bandwidth' = rede. */
+  limit: 'none' | 'cpu' | 'bandwidth' | 'other';
+  rttMs: number;
+  /** Bateria em % (só Android/Chrome informa). */
+  battery: number | null;
+  charging: boolean;
+}
+
+/** Qualidade pedida aos celulares (Conectar celular › Qualidade). */
+export interface PhoneQuality {
+  /** Teto de envio, em Mbps. */
+  mbps: number;
+  /** O que segurar quando o celular esquenta ou o Wi‑Fi aperta. */
+  priority: 'nitidez' | 'equilibrio' | 'fluidez';
+}
 
 export type AccessStatus = 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
 
@@ -785,8 +844,10 @@ export interface StudioApi {
 
   phoneLink(): Promise<PhoneLink>;
   newPhoneLink(): Promise<PhoneLink>;
-  /** Liga/desliga o endereço público para celulares de outra rede. */
-  setPhoneRemote(on: boolean): Promise<PhoneLink>;
+  /** Liga/desliga o endereço público para celulares de outra rede (pelo túnel da Cloudflare ou pelo servidor próprio). */
+  setPhoneRemote(on: boolean, mode?: 'cloudflare' | 'servidor'): Promise<PhoneLink>;
+  /** Servidor próprio dos celulares: endereço e chave (chave null = mantém a guardada; '' = apaga). */
+  setPhoneRelay(address: string, secret: string | null): Promise<PhoneLink>;
   /** STUN/TURN usados na conexão com os celulares. */
   phoneIce(): Promise<RTCIceServer[]>;
   /** Mudou o estado do endereço público (preparando → ligado, caiu…). */

@@ -112,6 +112,53 @@ export function addToScene(project: Project, sceneId: string, kind: DeviceKind, 
   };
 }
 
+const isWidgetOrMedia = (deviceId: string) => deviceId.startsWith('pagina:') || deviceId.startsWith('midia:');
+
+/**
+ * Manda dispositivos para o Programa (cena no ar). Dispositivo comum TROCA quem estava no ar: as outras câmeras e
+ * celulares saem da cena (widgets, mídias e dispositivos de sobreposição ficam). O que entra fica no lugar e no
+ * tamanho de quem saiu (a não ser que venha ajustado da Prévia). Dispositivo de sobreposição só entra por cima.
+ * Celular que sai leva junto o microfone dele (que tinha entrado automaticamente com a câmera).
+ */
+export function putOnProgram(project: Project, sceneId: string, refs: DeviceRef[], devices: SystemDevice[], isOverlay: (ref: DeviceRef) => boolean): Project {
+  let next = project;
+  const before = project.scenes.find((s) => s.id === sceneId);
+  if (!before) return project;
+  const wasIn = new Set(before.items.map((i) => i.sourceId));
+  for (const ref of refs) next = addToScene(next, sceneId, 'video', ref, devices);
+  const main = refs.filter((r) => !isOverlay(r) && !isWidgetOrMedia(r.deviceId));
+  if (main.length === 0) return next;
+  const keep = new Set(refs.map((r) => findSource(next, 'video', r, devices)?.id).filter((id): id is string => Boolean(id)));
+  const scene = next.scenes.find((s) => s.id === sceneId)!;
+  const sourceOf = (id: string) => next.sources.find((x) => x.id === id);
+  const leaving = scene.items.filter((i) => {
+    const src = sourceOf(i.sourceId);
+    return src && src.kind === 'video' && !keep.has(src.id) && !isWidgetOrMedia(src.device.deviceId) && !isOverlay(src.device);
+  });
+  if (leaving.length === 0) return next;
+  const out = new Set(leaving.map((i) => i.sourceId));
+  // Microfone do celular que saiu.
+  for (const item of leaving) {
+    const id = sourceOf(item.sourceId)?.device.deviceId ?? '';
+    if (!id.startsWith('celular:')) continue;
+    const mic = id.replace(/:video$/, ':audio');
+    for (const i of scene.items) if (sourceOf(i.sourceId)?.device.deviceId === mic) out.add(i.sourceId);
+  }
+  // O novo dispositivo principal herda o lugar (camada, posição, tamanho, borda) de quem estava no ar.
+  const first = leaving[0];
+  const mainSource = findSource(next, 'video', main[0], devices);
+  const inherit = mainSource && !wasIn.has(mainSource.id) && !mainSource.staged ? mainSource.id : null;
+  const items = scene.items.flatMap((i) => {
+    if (i.sourceId === inherit) return [];
+    if (i === first && inherit) {
+      const old = scene.items.find((x) => x.sourceId === inherit)!;
+      return [{ ...old, transform: first.transform, ...(first.fill ? { fill: first.fill } : {}), ...(first.border ? { border: first.border } : {}) }];
+    }
+    return out.has(i.sourceId) ? [] : [i];
+  });
+  return { ...next, scenes: next.scenes.map((s) => (s.id === sceneId ? { ...s, items } : s)) };
+}
+
 export interface MissingItem {
   /** "source:<id>", "role:<role>" ou "monitor". */
   id: string;

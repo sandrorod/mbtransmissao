@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { Blend, Clapperboard, Expand, Shrink, CloudUpload, History, FilePlus2, Film, FolderOpen, LayoutTemplate, Upload, GripHorizontal, Maximize2, Minimize2, Radio, Save, Settings2, Square, Timer } from 'lucide-react';
 import { mixer } from './audio/engine';
 import { audioType, baseName, displayName, findDevice, kindOf, normalizeLabel, setDeviceAliases, videoType, type DeviceChanges, type SystemDevice } from './devices/identify';
-import { pageRegistry, pool } from './devices/pool';
+import { pageRegistry, pool, usePooledStream } from './devices/pool';
+import { videoConstraints } from './devices/videoOptions';
 import { mediaPlayers, mediaRegistry } from './devices/mediaPlayers';
 import { MediaPanel } from './components/MediaPanel';
 import { isPlainLook, MediaLookDialog } from './components/MediaLookDialog';
@@ -29,7 +30,7 @@ import { Compositor, fillTransform } from './program/compositor';
 import { LiveController } from './program/live';
 import { liveStore, sameLiveCore, useLiveMetrics } from './program/liveStore';
 import { DEFAULT_AUDIO, DEFAULT_LAYOUT, isYoutubeDestination, DEFAULT_VIDEO, EMPTY_PREFERENCES, OUTPUT_PRESETS, PANEL_IDS, ROLES, type AccountView, type Border, type DeviceKind, type Layout, type PanelColumn, type PanelId, type DeviceRef, type LiveExtras, type LiveStatus, type MediaAccess, type Preferences, type Project, type SceneItem, type Source, type Transform, type VideoMode, type WebPage } from './types/studio';
-import { addToScene, sceneHasDevice, createProject, ensureSource, findSource, isVirtualDevice, missingDevices, newId, realDevices, refOf, removeDeviceSources, removeSource, replaceDevice, updateDeviceIds, type MissingItem } from './utils/project';
+import { addToScene, putOnProgram, sceneHasDevice, createProject, ensureSource, findSource, isVirtualDevice, missingDevices, newId, realDevices, refOf, removeDeviceSources, removeSource, replaceDevice, updateDeviceIds, type MissingItem } from './utils/project';
 import { validatePreferences } from './utils/validate';
 
 const api = () => window.studio;
@@ -58,6 +59,9 @@ function LiveBadge({ status }: { status: LiveStatus }) {
 }
 
 /** Peso de cada área quando o operador ainda não mexeu no tamanho. */
+/** Chave do "som desligado" de um dispositivo: widgets/mídias pelo id; o resto pelo nome (ids mudam entre aberturas). */
+const soundKeyOf = (deviceId: string, label: string) => (deviceId.startsWith('pagina:') || deviceId.startsWith('midia:') ? deviceId : normalizeLabel(label));
+
 const PANEL_WEIGHT: Record<PanelId, number> = { dispositivos: 3, widgets: 2, midias: 1.6, previa: 1, cenas: 1.6, mixer: 1.1, selecao: 1.1, replay: 1.4 };
 /** Nome de cada área (menu Exibição e botão de fechar). */
 const PANEL_NAMES: Record<PanelId, string> = { dispositivos: 'Dispositivos', widgets: 'Widgets', midias: 'Mídias', previa: 'Prévia', cenas: 'Cenas', mixer: 'Mixer', selecao: 'Seleção para a transmissão', replay: 'Replay' };
@@ -388,7 +392,8 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
       for (const p of phones.list()) {
         const s = p.stats;
         if (!s || p.state !== 'ao-vivo') continue;
-        window.studio.liveLog(`celular ${p.name}: chegando ${s.width}x${s.height} ${s.fps} quadros/s · ${s.kbps} kbps ${s.codec} · perda ${s.lost}% · congelamentos ${s.freezes}`);
+        const sent = s.sent ? ` · celular manda ${s.sent.width}x${s.sent.height} ${s.sent.fps} q/s ${s.sent.kbps} kbps (rede aguenta ${s.sent.targetKbps}) limite ${s.sent.limit}${s.sent.battery !== null ? ` · bateria ${s.sent.battery}%${s.sent.charging ? ' carregando' : ''}` : ''}` : '';
+        window.studio.liveLog(`celular ${p.name}: chegando ${s.width}x${s.height} ${s.fps} quadros/s · ${s.kbps} kbps ${s.codec} · perda ${s.lost}% · congelamentos ${s.freezes}${sent}`);
       }
     }, 10_000);
     return () => clearInterval(timer);
@@ -475,7 +480,14 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     // Vídeos da área Mídias com som também ganham canal no mixer.
     ...(project?.media ?? []).filter((m) => m.kind === 'video' && m.audio).map((m) => `midia:${m.id}`),
   ]), [project?.pages, project?.media]);
-  const mixerSources = useMemo(() => sceneSources.filter((s) => s.kind === 'audio' || soundPages.has(s.device.deviceId)).map((s) => (s.audio ? s : { ...s, audio: DEFAULT_AUDIO })), [sceneSources, soundPages]);
+  // Som desligado pela miniatura do dispositivo: o canal fica mudo no mixer (o botão do mixer mostra e religa).
+  const soundOff = useMemo(() => new Set(prefs.soundOff), [prefs.soundOff]);
+  const mixerSources = useMemo(() => sceneSources
+    .filter((s) => s.kind === 'audio' || soundPages.has(s.device.deviceId))
+    .map((s) => {
+      const audio = s.audio ?? DEFAULT_AUDIO;
+      return { ...s, audio: soundOff.has(soundKeyOf(s.device.deviceId, s.device.label)) && !audio.muted ? { ...audio, muted: true } : audio };
+    }), [sceneSources, soundPages, soundOff]);
   // Replay de cada câmera: durante a transmissão, as câmeras que estão na cena (Mac e celulares, mesmo ocultas) ficam gravando.
   // Cada gravação é mais uma codificação H.264: gravar câmeras fora da cena (ou câmeras virtuais, como a do
   // OBS) roubava processamento do Programa e a live caía para 14–20 quadros/s num Mac Intel.
@@ -484,6 +496,23 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   // Replay: câmeras e celulares com o replay ligado na miniatura (estejam ou não na cena no ar).
   // Páginas, mídias e câmeras virtuais nunca gravam replay.
   const replayOff = new Set(prefs.replayOff);
+  const overlaySet = new Set(prefs.overlayDevices);
+  /** Dispositivo marcado como sobreposição: entra por cima no Programa, sem tirar quem está no ar. */
+  const isOverlayRef = (ref: DeviceRef) => overlaySet.has(normalizeLabel(ref.label));
+  /**
+   * Som que pertence a uma entrada de vídeo: microfone do celular, o próprio widget/mídia, ou o áudio da
+   * placa de captura/câmera (mesmo grupo do sistema). Sem isso, a miniatura mostra o botão de som desativado.
+   */
+  const audioOfVideo = (d: SystemDevice): { deviceId: string; label: string } | null => {
+    if (isPage(d.deviceId) || isMedia(d.deviceId)) return { deviceId: d.deviceId, label: d.label };
+    if (d.deviceId.startsWith('celular:')) return devices.find((x) => x.deviceId === phoneDeviceId(phoneIdOf(d.deviceId), 'audio')) ?? null;
+    const audios = devices.filter((x) => x.kind === 'audioinput' && x.deviceId !== 'default' && !x.deviceId.startsWith('celular:'));
+    const byGroup = d.groupId ? audios.find((x) => x.groupId === d.groupId) : undefined;
+    if (byGroup) return byGroup;
+    // Placas de captura costumam ter vídeo e áudio com o mesmo nome (ex.: "USB Video" / "USB Video" ou "USB Audio").
+    const name = normalizeLabel(baseName(d.label)).replace(/\b(video|camera|câmera|webcam)\b/g, '').trim();
+    return name.length >= 3 ? audios.find((x) => normalizeLabel(baseName(x.label)).replace(/\b(audio|áudio|microphone|microfone|mic)\b/g, '').trim() === name) ?? null : null;
+  };
   const canReplay = (d: SystemDevice) => d.kind === 'videoinput' && !isPage(d.deviceId) && !isMedia(d.deviceId) && videoType(d.label) !== 'Câmera virtual';
   const replayCameras: ReplayCamera[] = devices
     .filter((d) => canReplay(d) && !hidden.has(normalizeLabel(d.label)) && !replayOff.has(normalizeLabel(d.label)))
@@ -498,6 +527,23 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraReplay, recordingCameras, camerasKey]);
   const hiddenInScene = useMemo(() => new Set((activeScene?.items ?? []).filter((i) => i.hidden).map((i) => i.sourceId)), [activeScene]);
+
+  /** Celular com a câmera no Programa (cena no ar, visível): a tela dele fica verde com "AO VIVO". */
+  const onAirPhonesKey = (activeScene?.items ?? [])
+    .filter((i) => !i.hidden)
+    .map((i) => project?.sources.find((s) => s.id === i.sourceId))
+    .filter((s): s is Source => Boolean(s && s.kind === 'video' && s.device.deviceId.startsWith('celular:')))
+    .map((s) => phoneIdOf(s.device.deviceId))
+    .sort()
+    .join(',');
+  useEffect(() => { phones.setOnAir(onAirPhonesKey ? onAirPhonesKey.split(',') : []); }, [onAirPhonesKey]);
+  useEffect(() => { phones.setQuality(prefs.phoneQuality); }, [prefs.phoneQuality]);
+  // "Ouvir transmissão" no celular: recebe a mix do Programa direto do mixer (sem o atraso da plataforma).
+  useEffect(() => { phones.setProgramAudio(() => mixer.programStream().getAudioTracks()[0] ?? null); }, []);
+  useEffect(() => {
+    phones.onChatMessage = (_id, name, text) => notify({ tone: 'ok', icon: 'ok', title: `Mensagem de ${displayName(name)}`, text: text.length > 140 ? `${text.slice(0, 140)}…` : text });
+    return () => { phones.onChatMessage = null; };
+  }, [notify]);
 
   /**
    * Celular na cena = câmera E microfone dele. O som do celular é um dispositivo à parte e nunca entrava
@@ -530,6 +576,38 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     if (next !== project) setProject(next);
   }, [project, devices]);
 
+  /**
+   * Master: quando o Programa fica sem nenhuma câmera/celular funcionando (o que estava no ar caiu, congelou ou foi
+   * tirado), o master entra na hora. A captura dele fica sempre aberta, então a troca é imediata.
+   */
+  const masterDevice = prefs.masterDevice ? devices.find((d) => d.kind === 'videoinput' && normalizeLabel(d.label) === prefs.masterDevice) ?? null : null;
+  const masterSource = masterDevice ? sourceOfDevice(masterDevice) : undefined;
+  usePooledStream(masterDevice ? (masterSource ? videoSpecOf(masterSource) : { kind: 'video', deviceId: masterDevice.deviceId, label: masterDevice.label, constraints: videoConstraints(DEFAULT_VIDEO) }) : null);
+  const programCams = (activeScene?.items ?? [])
+    .map((i) => project?.sources.find((x) => x.id === i.sourceId))
+    .filter((x): x is Source => Boolean(x && x.kind === 'video' && !isPage(x.device.deviceId) && !isMedia(x.device.deviceId) && !isOverlayRef(x.device)));
+  const healthyKey = programCams
+    .filter((x) => findDevice(x.device, devices, 'videoinput') && !(isPhone(x.device.deviceId) && phones.isStalled(x.device.deviceId)))
+    .map((x) => normalizeLabel(x.device.label))
+    .sort()
+    .join('|');
+  const programBefore = useRef<{ scene: string | null; key: string } | null>(null);
+  useEffect(() => {
+    const before = programBefore.current;
+    const sceneId = activeScene?.id ?? null;
+    programBefore.current = { scene: sceneId, key: healthyKey };
+    if (!masterDevice || !sceneId || !before || before.scene !== sceneId) return;
+    if (!before.key || healthyKey) return;
+    // O próprio master saiu (operador tirou ou caiu): não volta sozinho.
+    if (before.key.split('|').includes(prefs.masterDevice ?? '')) return;
+    if (isPhone(masterDevice.deviceId) && phones.isStalled(masterDevice.deviceId)) return;
+    const master = refOf(masterDevice);
+    setProject((p) => (p ? putOnProgram(p, sceneId, [master], devicesRef.current, (r) => r.deviceId !== master.deviceId && isOverlayRef(r)) : p));
+    window.studio.liveLog(`master assumiu o Programa: ${displayName(masterDevice.label)}`);
+    notify({ tone: 'warn', icon: 'alert', title: `${displayName(masterDevice.label)} assumiu o Programa`, text: 'O Programa ficou sem câmera; o dispositivo master entrou no lugar.' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [healthyKey, activeScene?.id, masterDevice?.deviceId]);
+
   const statusOf = (source: Source): SourceStatus => {
     if (!findDevice(source.device, devices, kindOf(source.kind))) return 'desconectado';
     const entry = pool.get(specKey(source.kind === 'video' ? videoSpecOf(source) : audioSpecOf(source)));
@@ -538,6 +616,12 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
 
   const addDeviceToScene = (device: SystemDevice, kind: DeviceKind) => {
     if (!project || !activeScene) return;
+    if (kind === 'video') {
+      // Dispositivo comum troca quem está no ar; o de sobreposição entra por cima.
+      setProject(putOnProgram(project, activeScene.id, [refOf(device)], devices, isOverlayRef));
+      notify({ tone: 'ok', icon: 'ok', title: `${displayName(device.label)} no Programa`, text: isOverlayRef(refOf(device)) ? 'Sobreposição: entrou por cima do que estava no ar.' : undefined });
+      return;
+    }
     setProject(addToScene(project, activeScene.id, kind, refOf(device), devices));
     notify({ tone: 'ok', icon: 'ok', title: `${displayName(device.label)} na cena ${activeScene.name}` });
   };
@@ -767,12 +851,8 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
   });
   const programMany = (ids: string[]) => setProject((p) => {
     if (!p || !p.activeSceneId) return p;
-    let next = p;
-    for (const id of ids) {
-      const device = devicesRef.current.find((d) => d.deviceId === id && d.kind === 'videoinput');
-      if (device) next = addToScene(next, p.activeSceneId, 'video', refOf(device), devicesRef.current);
-    }
-    return next;
+    const refs = ids.flatMap((id) => devicesRef.current.filter((d) => d.deviceId === id && d.kind === 'videoinput').map(refOf));
+    return putOnProgram(p, p.activeSceneId, refs, devicesRef.current, isOverlayRef);
   });
   const stopMany = (ids: string[]) => setProject((p) => {
     if (!p || !p.activeSceneId) return p;
@@ -800,9 +880,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
     if (!activeScene || sources.length === 0) return;
     setProject((p) => {
       if (!p || !p.activeSceneId) return p;
-      let next = p;
-      for (const source of sources) next = addToScene(next, p.activeSceneId, 'video', source.device, devicesRef.current);
-      return next;
+      return putOnProgram(p, p.activeSceneId, sources.map((x) => x.device), devicesRef.current, isOverlayRef);
     });
     notify({ tone: 'ok', icon: 'ok', title: sources.length > 1 ? `${sources.length} elementos no Programa` : `${displayName(sources[0].name)} no Programa`, text: `Cena ${activeScene.name}` });
   };
@@ -1061,10 +1139,36 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         onSettings={openSettings}
         onRemove={removeDevice}
         onFlip={(d) => phones.command(phoneIdOf(d.deviceId), 'trocar-camera')}
+        roleOf={(d) => (normalizeLabel(d.label) === prefs.masterDevice ? 'master' : overlaySet.has(normalizeLabel(d.label)) ? 'overlay' : null)}
+        tileScale={prefs.tileScale}
+        onTileScale={(tileScale) => setPrefs((current) => {
+          const next = { ...current, tileScale };
+          if (prefsSave.current) clearTimeout(prefsSave.current);
+          prefsSave.current = setTimeout(() => void api().savePreferences(next), 400);
+          return next;
+        })}
         replayOf={(d) => (canReplay(d) ? !replayOff.has(normalizeLabel(d.label)) : null)}
         onReplay={(d, on) => {
           const key = normalizeLabel(d.label);
           updatePrefs({ ...prefs, replayOff: on ? prefs.replayOff.filter((k) => k !== key) : [...prefs.replayOff.filter((k) => k !== key), key] });
+        }}
+        soundOf={(d) => {
+          const audio = audioOfVideo(d);
+          if (!audio) return null;
+          const key = soundKeyOf(audio.deviceId, audio.label);
+          const muted = soundOff.has(key) || project.sources.some((s) => (s.kind === 'audio' || s.device.deviceId === audio.deviceId) && s.audio && soundKeyOf(s.device.deviceId, s.device.label) === key && s.audio.muted);
+          return { on: !muted, read: () => {
+            const source = project.sources.find((s) => (s.kind === 'audio' || s.device.deviceId === audio.deviceId) && soundKeyOf(s.device.deviceId, s.device.label) === key && mixerSources.some((m) => m.id === s.id));
+            return source ? mixer.peak(source.id) : -Infinity;
+          } };
+        }}
+        onSound={(d, on) => {
+          const audio = audioOfVideo(d);
+          if (!audio) return;
+          const key = soundKeyOf(audio.deviceId, audio.label);
+          updatePrefs({ ...prefs, soundOff: on ? prefs.soundOff.filter((k) => k !== key) : [...prefs.soundOff.filter((k) => k !== key), key] });
+          if (on) setProject((p) => (p ? { ...p, sources: p.sources.map((s) => (s.audio?.muted && soundKeyOf(s.device.deviceId, s.device.label) === key ? { ...s, audio: { ...s.audio, muted: false } } : s)) } : p));
+          notify({ tone: 'ok', icon: 'ok', title: on ? `Som de ${displayName(d.label)} ligado` : `Som de ${displayName(d.label)} desligado` });
         }}
         onReloadPage={(d) => void api().reloadPage(d.deviceId.slice(7))}
         onRename={renameDevice}
@@ -1196,7 +1300,13 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
         // Microfones/interfaces + widgets (páginas com som) da cena ativa.
         sources={mixerSources}
         hiddenIds={hiddenInScene}
-        onChange={(id, patch) => setProject((p) => (p ? { ...p, sources: p.sources.map((s) => (s.id === id && (s.audio || isPage(s.device.deviceId) || isMedia(s.device.deviceId)) ? { ...s, audio: { ...(s.audio ?? DEFAULT_AUDIO), ...patch } } : s)) } : p))}
+        onChange={(id, patch) => {
+          // Religar no mixer um som desligado pela miniatura religa também a miniatura.
+          const source = project.sources.find((s) => s.id === id);
+          const key = source ? soundKeyOf(source.device.deviceId, source.device.label) : '';
+          if (patch.muted === false && key && soundOff.has(key)) updatePrefs({ ...prefs, soundOff: prefs.soundOff.filter((k) => k !== key) });
+          setProject((p) => (p ? { ...p, sources: p.sources.map((s) => (s.id === id && (s.audio || isPage(s.device.deviceId) || isMedia(s.device.deviceId)) ? { ...s, audio: { ...(s.audio ?? DEFAULT_AUDIO), ...patch } } : s)) } : p));
+        }}
         onSettings={(s) => setSettingsFor(s.id)}
       />
     ),
@@ -1420,6 +1530,15 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
       {settingsSource?.kind === 'video' && (
         <VideoSettingsDialog
           source={settingsSource}
+          program={isPage(settingsSource.device.deviceId) || isMedia(settingsSource.device.deviceId) ? null : (() => {
+            const key = normalizeLabel(settingsSource.device.label);
+            return {
+              master: prefs.masterDevice === key,
+              overlay: prefs.overlayDevices.includes(key),
+              onMaster: (on: boolean) => updatePrefs({ ...prefs, masterDevice: on ? key : null, overlayDevices: on ? prefs.overlayDevices.filter((k) => k !== key) : prefs.overlayDevices }),
+              onOverlay: (on: boolean) => updatePrefs({ ...prefs, overlayDevices: on ? [...prefs.overlayDevices.filter((k) => k !== key), key] : prefs.overlayDevices.filter((k) => k !== key), masterDevice: on && prefs.masterDevice === key ? null : prefs.masterDevice }),
+            };
+          })()}
           devices={devices}
           modes={modes[findDevice(settingsSource.device, devices, 'videoinput')?.label ?? settingsSource.device.label]}
           onChange={(patch) => updateSource(settingsSource.id, { video: { ...settingsSource.video!, ...patch } })}
@@ -1450,7 +1569,7 @@ export default function App({ account, onLogout }: { account: AccountView; onLog
           }}
         />
       )}
-      {dialog?.t === 'phone' && <PhoneDialog publicAddress={prefs.publicAddress} onPublicAddress={(publicAddress) => updatePrefs({ ...prefs, publicAddress })} turn={prefs.turn} onTurn={(turn) => { const next = { ...prefs, turn }; setPrefs(next); void api().savePreferences(next).then(() => api().phoneLink()).then(() => phones.refreshIce()); }} onClose={() => setDialog(null)} />}
+      {dialog?.t === 'phone' && <PhoneDialog quality={prefs.phoneQuality} onQuality={(phoneQuality) => updatePrefs({ ...prefs, phoneQuality })} publicAddress={prefs.publicAddress} onPublicAddress={(publicAddress) => updatePrefs({ ...prefs, publicAddress })} turn={prefs.turn} onTurn={(turn) => { const next = { ...prefs, turn }; setPrefs(next); void api().savePreferences(next).then(() => api().phoneLink()).then(() => phones.refreshIce()); }} onClose={() => setDialog(null)} />}
       {dialog?.t === 'media-look' && (
         <MediaLookDialog
           media={project.media ?? []}

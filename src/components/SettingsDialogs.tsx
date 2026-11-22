@@ -45,8 +45,17 @@ function DeviceField({ value, devices, kind, onChange }: { value: DeviceRef; dev
 
 type Range = { min?: number; max?: number; step?: number };
 
-export function VideoSettingsDialog({ source, devices, modes, onChange, onDevice, onClose }: {
+/** Papel do dispositivo no Programa (master / sobreposição); null = não se aplica (widget, mídia). */
+export interface ProgramRole {
+  master: boolean;
+  overlay: boolean;
+  onMaster: (on: boolean) => void;
+  onOverlay: (on: boolean) => void;
+}
+
+export function VideoSettingsDialog({ source, program, devices, modes, onChange, onDevice, onClose }: {
   source: Source;
+  program?: ProgramRole | null;
   devices: SystemDevice[];
   modes: VideoMode[] | null | undefined;
   onChange: (patch: Partial<VideoSettings>) => void;
@@ -78,6 +87,19 @@ export function VideoSettingsDialog({ source, devices, modes, onChange, onDevice
         </div>
         <div className="settings-form">
           <DeviceField value={source.device} devices={devices} kind="videoinput" onChange={onDevice} />
+          {program && (
+            <>
+              <h3 className="group-title">No Programa</h3>
+              <label className="switch-row" title="Quando o Programa ficar sem nenhuma câmera ou celular (caiu, congelou ou foi tirado), este entra na hora">
+                <span>Dispositivo master<small className="switch-hint">Assume o Programa quando ele fica sem câmera. Só um por vez.</small></span>
+                <input type="checkbox" className="switch" checked={program.master} onChange={(e) => program.onMaster(e.target.checked)} />
+              </label>
+              <label className="switch-row" title="Ao mandar para o Programa, entra por cima sem tirar quem está no ar">
+                <span>Sobreposição<small className="switch-hint">Entra por cima do que está no ar, sem tirar. Sem esta opção, mandar para o Programa troca a câmera que estava.</small></span>
+                <input type="checkbox" className="switch" checked={program.overlay} onChange={(e) => program.onOverlay(e.target.checked)} />
+              </label>
+            </>
+          )}
           {choices.sizes.length > 0 && (
             <label className="option-field">
               <span className="option-label">Resolução</span>

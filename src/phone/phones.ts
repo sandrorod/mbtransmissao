@@ -1,5 +1,5 @@
 import type { SystemDevice } from '../devices/identify';
-import type { PhoneEvent } from '../types/studio';
+import { DEFAULT_PHONE_QUALITY, type PhoneEvent, type PhoneQuality, type PhoneSenderStats } from '../types/studio';
 
 export type PhoneState = 'conectando' | 'ao-vivo' | 'sem-video';
 
@@ -14,6 +14,8 @@ export interface PhoneStats {
   lost: number;
   /** Travamentos de imagem detectados pelo navegador desde a conexão. */
   freezes: number;
+  /** O que o próprio celular diz que está mandando (e por que reduziu). */
+  sent: PhoneSenderStats | null;
 }
 
 interface Peer {
@@ -24,6 +26,24 @@ interface Peer {
   state: PhoneState;
   stats: PhoneStats | null;
   lastBytes: { bytes: number; at: number } | null;
+  /** Transceptor por onde o som do Programa volta para o celular (quando ele pede para ouvir). */
+  back: RTCRtpTransceiver | null;
+  /** O celular quer ouvir a transmissão. */
+  listening: boolean;
+  /** Último relato de envio do celular. */
+  sent: PhoneSenderStats | null;
+  /** Quadros decodificados na última checagem e há quantas checagens seguidas não chega quadro novo. */
+  frames: number;
+  still: number;
+  /** Imagem parada (Wi‑Fi caiu, app do celular foi para o fundo): o master pode assumir. */
+  stalled: boolean;
+}
+
+/** Mensagem do chat entre o operador e um celular. */
+export interface ChatMessage {
+  from: 'celular' | 'estudio';
+  text: string;
+  at: number;
 }
 
 /**
@@ -32,6 +52,35 @@ interface Peer {
  * "travadinhas". 300 ms cobre a maioria das rajadas e ainda é imperceptível numa transmissão.
  */
 const JITTER_BUFFER_MS = 300;
+
+/** Checagens de 1 s sem quadro novo para a imagem contar como parada. */
+const STALL_CHECKS = 2;
+
+const newPeer = (id: string, name: string): Peer => ({ id, name, pc: null, stream: null, state: 'conectando', stats: null, lastBytes: null, back: null, listening: false, sent: null, frames: 0, still: 0, stalled: false });
+
+/**
+ * Resposta com piso e partida de taxa para o vídeo do celular (parâmetros x-google-*, lidos pelo WebRTC de quem envia).
+ * Sem isso o celular começa baixo (~300 kbps) e, depois de uma rajada de perda no Wi‑Fi, desce e demora a subir:
+ * a imagem ficava "lavada" depois de um tempo conectado.
+ */
+export function withVideoBitrate(sdp: string, maxKbps: number): string {
+  const start = Math.round(maxKbps * 0.8);
+  const min = Math.round(maxKbps * 0.35);
+  const params = `x-google-start-bitrate=${start};x-google-min-bitrate=${min};x-google-max-bitrate=${maxKbps}`;
+  const eol = sdp.includes('\r\n') ? '\r\n' : '\n';
+  const sections = sdp.split(/(?=^m=)/m);
+  return sections.map((section) => {
+    if (!section.startsWith('m=video')) return section;
+    const pts = [...section.matchAll(/^a=rtpmap:(\d+) (H264|VP8|VP9|AV1)\//gim)].map((m) => m[1]);
+    let out = section.replace(/;?x-google-(start|min|max)-bitrate=\d+/g, '');
+    for (const pt of pts) {
+      const fmtp = new RegExp(`^a=fmtp:${pt} ([^\\r\\n]*)`, 'm');
+      if (fmtp.test(out)) out = out.replace(fmtp, (_l, rest: string) => { const kept = rest.trim().replace(/^;+|;+$/g, ''); return `a=fmtp:${pt} ${kept ? `${kept};` : ''}${params}`; });
+      else out = out.replace(new RegExp(`^(a=rtpmap:${pt} [^\\r\\n]*)`, 'm'), `$1${eol}a=fmtp:${pt} ${params}`);
+    }
+    return out;
+  }).join('');
+}
 
 /** Prefixo dos ids de celular na lista de dispositivos: "celular:<id>:video" / "celular:<id>:audio". */
 export const phoneDeviceId = (id: string, kind: 'video' | 'audio') => `celular:${id}:${kind}`;
@@ -48,6 +97,106 @@ export class PhoneManager {
   /** STUN/TURN atuais (lidos no começo e sempre que um celular entra, sem atrasar a resposta). */
   private ice: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
   version = 0;
+  /** Celulares cuja câmera está no Programa (o celular fica verde com "AO VIVO"). */
+  private onAir = new Set<string>();
+  /** Qualidade pedida aos celulares (teto e prioridade); vale para os conectados e os que entrarem. */
+  private quality: PhoneQuality = DEFAULT_PHONE_QUALITY;
+  /** Som do Programa (mix do mixer) que vai para quem pede "Ouvir transmissão". */
+  private programAudio: (() => MediaStreamTrack | null) | null = null;
+  /** Conversa de cada celular (fica enquanto o Estúdio estiver aberto, mesmo se ele sair e voltar). */
+  private chats = new Map<string, ChatMessage[]>();
+  private unread = new Map<string, number>();
+  private chatListeners = new Set<() => void>();
+  private chatVersion = 0;
+  /** Aviso na tela do Estúdio quando chega mensagem. */
+  onChatMessage: ((id: string, name: string, text: string) => void) | null = null;
+
+  subscribeChat = (listener: () => void) => {
+    this.chatListeners.add(listener);
+    return () => this.chatListeners.delete(listener);
+  };
+  getChatVersion = () => this.chatVersion;
+  private emitChat(): void {
+    this.chatVersion++;
+    for (const l of this.chatListeners) l();
+  }
+
+  chatOf(deviceOrPhoneId: string): ChatMessage[] {
+    return this.chats.get(this.idOf(deviceOrPhoneId)) ?? [];
+  }
+
+  unreadOf(deviceOrPhoneId: string): number {
+    return this.unread.get(this.idOf(deviceOrPhoneId)) ?? 0;
+  }
+
+  markRead(deviceOrPhoneId: string): void {
+    const id = this.idOf(deviceOrPhoneId);
+    if (!this.unread.get(id)) return;
+    this.unread.delete(id);
+    this.emitChat();
+  }
+
+  sendChat(deviceOrPhoneId: string, text: string): void {
+    const id = this.idOf(deviceOrPhoneId);
+    const clean = text.trim().slice(0, 500);
+    if (!clean) return;
+    this.pushChat(id, { from: 'estudio', text: clean, at: Date.now() });
+    void window.studio.sendToPhone(id, { t: 'chat', texto: clean });
+  }
+
+  private pushChat(id: string, message: ChatMessage): void {
+    const list = [...(this.chats.get(id) ?? []), message].slice(-200);
+    this.chats.set(id, list);
+    this.emitChat();
+  }
+
+  private idOf(deviceOrPhoneId: string): string {
+    return deviceOrPhoneId.startsWith('celular:') ? phoneIdOf(deviceOrPhoneId) : deviceOrPhoneId;
+  }
+
+  /** De onde vem o som do Programa (o App passa o mixer). */
+  setProgramAudio(get: () => MediaStreamTrack | null): void {
+    this.programAudio = get;
+    for (const peer of this.peers.values()) this.applyBack(peer);
+  }
+
+  /** Liga/desliga o som do Programa indo para o celular (sem renegociar a conexão). */
+  private applyBack(peer: Peer): void {
+    const sender = peer.back?.sender;
+    if (!sender || peer.pc?.connectionState === 'closed') return;
+    const track = peer.listening ? this.programAudio?.() ?? null : null;
+    if (sender.track === track) return;
+    void sender.replaceTrack(track).catch(() => undefined);
+  }
+
+  /** Quais celulares estão no Programa agora: avisa só os que mudaram. */
+  setOnAir(ids: Iterable<string>): void {
+    const next = new Set(ids);
+    for (const id of next) if (!this.onAir.has(id)) void window.studio.sendToPhone(id, { t: 'no-ar', on: true });
+    for (const id of this.onAir) if (!next.has(id)) void window.studio.sendToPhone(id, { t: 'no-ar', on: false });
+    this.onAir = next;
+  }
+
+  setQuality(quality: PhoneQuality): void {
+    if (quality.mbps === this.quality.mbps && quality.priority === this.quality.priority) return;
+    this.quality = quality;
+    for (const peer of this.peers.values()) if (peer.pc?.connectionState === 'connected') this.sendQuality(peer.id);
+  }
+
+  private sendQuality(id: string): void {
+    void window.studio.sendToPhone(id, { t: 'qualidade', mbps: this.quality.mbps, prioridade: this.quality.priority });
+  }
+
+  /** Imagem do celular parada há ~2 s (ou conexão caindo). */
+  isStalled(deviceId: string): boolean {
+    return this.peers.get(phoneIdOf(deviceId))?.stalled ?? false;
+  }
+
+  private setStalled(peer: Peer, stalled: boolean): void {
+    if (peer.stalled === stalled) return;
+    peer.stalled = stalled;
+    this.emit();
+  }
 
   refreshIce(): void {
     void window.studio.phoneIce().then((list) => { if (list.length) this.ice = list; }, () => undefined);
@@ -84,11 +233,12 @@ export class PhoneManager {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
-    setInterval(() => void this.collectStats(), 2000);
+    // A cada 1 s: números da recepção e, principalmente, imagem parada (para o master assumir rápido).
+    setInterval(() => void this.collectStats(), 1000);
     this.refreshIce();
     window.studio.onPhoneEvent((event) => void this.handle(event));
     const list = await window.studio.phonesReady();
-    for (const p of list) if (!this.peers.has(p.id)) this.peers.set(p.id, { id: p.id, name: p.name, pc: null, stream: null, state: 'conectando', stats: null, lastBytes: null });
+    for (const p of list) if (!this.peers.has(p.id)) this.peers.set(p.id, newPeer(p.id, p.name));
     this.emit();
   }
 
@@ -103,7 +253,10 @@ export class PhoneManager {
   private async collectStats(): Promise<void> {
     let changed = false;
     for (const peer of this.peers.values()) {
-      if (!peer.pc || peer.pc.connectionState !== 'connected') continue;
+      if (!peer.pc || peer.pc.connectionState !== 'connected') {
+        if (peer.pc?.connectionState === 'disconnected') this.setStalled(peer, true);
+        continue;
+      }
       const report = await peer.pc.getStats().catch(() => null);
       if (!report) continue;
       let video: Record<string, number | string> | null = null;
@@ -118,6 +271,11 @@ export class PhoneManager {
       const now = performance.now();
       const kbps = peer.lastBytes ? Math.round(((bytes - peer.lastBytes.bytes) * 8) / (now - peer.lastBytes.at)) : 0;
       peer.lastBytes = { bytes, at: now };
+      // Imagem parada: nenhum quadro novo decodificado nas últimas checagens.
+      const frames = Number(v.framesDecoded ?? 0);
+      peer.still = frames > peer.frames ? 0 : peer.still + 1;
+      peer.frames = frames;
+      this.setStalled(peer, peer.still >= STALL_CHECKS);
       const received = Number(v.packetsReceived ?? 0);
       const lostPackets = Number(v.packetsLost ?? 0);
       peer.stats = {
@@ -128,6 +286,7 @@ export class PhoneManager {
         codec: codecs.get(String(v.codecId)) ?? '',
         lost: received + lostPackets > 0 ? Math.round((lostPackets / (received + lostPackets)) * 1000) / 10 : 0,
         freezes: Number(v.freezeCount ?? 0),
+        sent: peer.sent,
       };
       changed = true;
     }
@@ -170,7 +329,7 @@ export class PhoneManager {
       this.refreshIce();
       const peer = this.peers.get(event.id);
       if (peer) peer.name = event.nome;
-      else this.peers.set(event.id, { id: event.id, name: event.nome, pc: null, stream: null, state: 'conectando', stats: null, lastBytes: null });
+      else this.peers.set(event.id, newPeer(event.id, event.nome));
       this.emit();
       return;
     }
@@ -182,13 +341,42 @@ export class PhoneManager {
       this.emit();
       return;
     }
+    if (event.t === 'chat') {
+      const peer = this.peers.get(event.id);
+      this.pushChat(event.id, { from: 'celular', text: event.texto, at: Date.now() });
+      this.unread.set(event.id, (this.unread.get(event.id) ?? 0) + 1);
+      this.emitChat();
+      this.onChatMessage?.(event.id, peer?.name ?? 'Celular', event.texto);
+      return;
+    }
+    if (event.t === 'ouvir') {
+      const peer = this.peers.get(event.id);
+      if (peer) {
+        peer.listening = event.on;
+        this.applyBack(peer);
+      }
+      return;
+    }
+    if (event.t === 'falha') {
+      window.studio.liveLog(`celular ${this.peers.get(event.id)?.name ?? event.id}: ${event.texto}`);
+      return;
+    }
+    if (event.t === 'estat') {
+      const peer = this.peers.get(event.id);
+      if (peer) {
+        peer.sent = event.dados;
+        if (peer.stats) peer.stats = { ...peer.stats, sent: event.dados };
+        this.emitStats();
+      }
+      return;
+    }
     if (event.t === 'nome') {
       const peer = this.peers.get(event.id);
       if (peer) peer.name = event.nome;
       this.emit();
       return;
     }
-    const data = event.dados as { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit } | null;
+    const data = event.dados as { sdp?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit; retorno?: string | null } | null;
     const peer = this.peers.get(event.id);
     if (!peer || !data) return;
     if (data.sdp?.type === 'offer') {
@@ -217,7 +405,18 @@ export class PhoneManager {
       };
       pc.onconnectionstatechange = () => {
         if (peer.pc !== pc) return;
-        if (pc.connectionState === 'connected') peer.state = 'ao-vivo';
+        if (pc.connectionState === 'connected') {
+          peer.state = 'ao-vivo';
+          peer.still = 0;
+          this.setStalled(peer, false);
+          this.sendQuality(peer.id);
+          // Celular reconectou: volta a saber se está no ar.
+          void window.studio.sendToPhone(peer.id, { t: 'no-ar', on: this.onAir.has(peer.id) });
+        }
+        else if (pc.connectionState === 'disconnected') {
+          // Wi‑Fi do celular oscilou: costuma voltar sozinho, mas a imagem já está parada.
+          this.setStalled(peer, true);
+        }
         else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           peer.state = 'sem-video';
           peer.stream?.getTracks().forEach((t) => t.stop());
@@ -228,10 +427,25 @@ export class PhoneManager {
       peer.stream = null;
       peer.stats = null;
       peer.lastBytes = null;
+      peer.back = null;
+      peer.frames = 0;
+      peer.still = 0;
       await pc.setRemoteDescription(data.sdp);
+      // Canal de volta pedido pelo celular: mandamos o som do Programa por ele quando o celular pedir.
+      if (data.retorno) {
+        const back = pc.getTransceivers().find((t) => t.mid === data.retorno) ?? null;
+        if (back) {
+          back.direction = 'sendonly';
+          peer.back = back;
+          this.applyBack(peer);
+        }
+      }
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
-      void window.studio.sendToPhone(peer.id, { t: 'sinal', dados: { sdp: pc.localDescription?.toJSON() } });
+      const local = pc.localDescription?.toJSON();
+      // Só a cópia que vai para o celular leva o piso/partida de taxa (é o celular que envia o vídeo).
+      const sdp = local?.sdp ? { ...local, sdp: withVideoBitrate(local.sdp, this.quality.mbps * 1000) } : local;
+      void window.studio.sendToPhone(peer.id, { t: 'sinal', dados: { sdp } });
       this.emit();
     } else if (data.candidate && peer.pc) {
       await peer.pc.addIceCandidate(data.candidate).catch(() => undefined);

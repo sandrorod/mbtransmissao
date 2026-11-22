@@ -125,7 +125,13 @@ body.resizing * { user-select: none; }
 /* Entradas de vídeo: telinhas ao vivo, 3 por linha */
 /* Telinhas: 20% menores duas vezes (64% das 3 por linha originais); cabem mais na mesma largura. */
 /* Textos do layout: todos os tamanhos de fonte reduzidos em 20%. */
-.video-grid { display: grid; grid-template-columns: repeat(auto-fill, calc((100% - 16px) / 3 * 0.64)); gap: 8px; }
+.video-grid { display: grid; grid-template-columns: repeat(auto-fill, min(100%, calc((100% - 16px) / 3 * var(--tile-scale, 0.64)))); gap: 8px; }
+.tile-size { display: flex; align-items: center; gap: 4px; margin-left: auto; color: var(--muted); }
+.tile-size input { width: 90px; }
+.tile-role { position: absolute; z-index: 2; left: 5px; bottom: 22px; padding: 1px 5px; border-radius: 4px; font-size: 7.5px; font-weight: 800; letter-spacing: .05em; color: #fff; pointer-events: none; }
+.tile-role-master { background: #b7791f; }
+.tile-role-overlay { background: #6b46c1; }
+.switch-hint { display: block; font-size: 11px; color: var(--muted); font-weight: 400; margin-top: 2px; line-height: 1.35; }
 .video-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .video-tile-on { border-color: var(--accent); }
 .video-tile-missing { opacity: .7; border-style: dashed; }
@@ -799,7 +805,7 @@ button.replay-chip:hover { color: var(--text); border-color: var(--accent); }
 
 /* Seleção em grupo (dispositivos de vídeo e mídias). */
 .tile-screen { position: relative; }
-.tile-replay { position: absolute; z-index: 2; left: 5px; bottom: 5px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, .6); color: #cfd3d8; font-size: 7.5px; font-weight: 800; letter-spacing: .05em; pointer-events: none; }
+.tile-replay { position: absolute; z-index: 2; left: 5px; bottom: 7px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, .6); color: #cfd3d8; font-size: 7.5px; font-weight: 800; letter-spacing: .05em; pointer-events: none; }
 .tile-replay-on { background: color-mix(in srgb, var(--danger) 85%, transparent); color: #fff; }
 .tile-btn-off { opacity: .45; }
 .video-tile-noreplay .tile-screen { outline: 1px dashed rgba(255, 255, 255, .18); outline-offset: -1px; }
@@ -864,3 +870,20 @@ button.replay-chip:hover { color: var(--text); border-color: var(--accent); }
 .look-colors button.border-color-on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .look-color-input { width: 30px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: none; cursor: pointer; }
 .look-fx-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+/* Chat com o celular */
+.tile-chat-btn { position: relative; }
+.tile-chat-badge { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 4px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 10px; font-weight: 700; line-height: 15px; text-align: center; pointer-events: none; }
+.phone-chat { display: flex; flex-direction: column; gap: 6px; min-height: 180px; max-height: 50vh; overflow-y: auto; padding: 4px 2px; }
+.phone-chat-msg { max-width: 80%; padding: 7px 10px; border-radius: 10px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
+.phone-chat-msg small { display: block; font-size: 10.5px; opacity: .7; margin-bottom: 2px; }
+.phone-chat-me { align-self: flex-end; background: var(--accent); color: var(--accent-ink); }
+.phone-chat-them { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
+.phone-chat-send { display: flex; gap: 8px; margin-top: 10px; }
+.phone-chat-send .field { flex: 1; min-width: 0; }
+
+/* Som do dispositivo na miniatura */
+.tile-btn-muted { color: var(--danger); }
+.tile-level { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; pointer-events: none; }
+.tile-level .level { height: 3px; border-radius: 0; background: rgba(0, 0, 0, .45); }
+.tile-level .level-hold { display: none; }

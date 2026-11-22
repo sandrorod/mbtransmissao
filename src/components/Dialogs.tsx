@@ -2,7 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import QRCode from 'qrcode';
 import { CloudUpload, Copy, Download, Globe, KeyRound, Upload, LogOut, Pencil, Plus, Radio, RefreshCw, Smartphone, Trash2, MonitorPlay } from 'lucide-react';
 import { phones } from '../phone/phones';
-import { OUTPUT_PRESETS, PLATFORMS, type Destination, type DestinationInput, type OutputSettings, type PhoneLink, type Platform, type TurnServer, type DriveState, type ReplayGalleryLink, type Project, type SessionSummary, type YoutubeBroadcast, type YoutubeState, youtubeDestinationId } from '../types/studio';
+import { OUTPUT_PRESETS, PLATFORMS, type Destination, type DestinationInput, type OutputSettings, type PhoneLink, type Platform, type PhoneQuality, type TurnServer, type DriveState, type ReplayGalleryLink, type Project, type SessionSummary, type YoutubeBroadcast, type YoutubeState, youtubeDestinationId } from '../types/studio';
 import { turnServer, validPageUrl } from '../utils/validate';
 import { Modal } from './common';
 
@@ -48,7 +48,7 @@ export function StopLiveDialog({ youtube, title, onStop, onClose }: { youtube: b
 }
 
 /** Link e QR Code para celulares entrarem como câmera (mesma rede Wi‑Fi, ou endereço público quando houver). */
-export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onClose }: { publicAddress: string; onPublicAddress: (address: string) => void; turn: TurnServer | null; onTurn: (turn: TurnServer | null) => void; onClose: () => void }) {
+export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, quality, onQuality, onClose }: { publicAddress: string; onPublicAddress: (address: string) => void; turn: TurnServer | null; onTurn: (turn: TurnServer | null) => void; quality: PhoneQuality; onQuality: (quality: PhoneQuality) => void; onClose: () => void }) {
   const [link, setLink] = useState<PhoneLink | null>(null);
   const [chosen, setChosen] = useState(0);
   const [qr, setQr] = useState<string | null>(null);
@@ -56,6 +56,8 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
   const [address, setAddress] = useState(publicAddress);
   const [turnDraft, setTurnDraft] = useState<TurnServer>(turn ?? { urls: '', username: '', credential: '' });
   const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [secret, setSecret] = useState('');
+  const [relayMsg, setRelayMsg] = useState<{ ok: boolean; text: string } | null>(null);
   useEffect(() => window.studio.onPhoneRemote(setLink), []);
   useSyncExternalStore(phones.subscribe, phones.getVersion);
   const connected = phones.list();
@@ -63,9 +65,19 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
   useEffect(() => { void window.studio.phoneLink().then(setLink); }, [publicAddress, turn]);
   const remote = link?.remote ?? { state: 'desligado' as const, url: null, message: null };
   const remoteOn = remote.state === 'ligado' || remote.state === 'preparando';
-  const toggleRemote = (on: boolean) => {
+  const mode = link?.remoteMode ?? 'cloudflare';
+  const toggleRemote = (on: boolean, next = mode) => {
     setRemoteError(null);
-    window.studio.setPhoneRemote(on).then(setLink, (e: unknown) => setRemoteError(ipcError(e)));
+    window.studio.setPhoneRemote(on, next).then(setLink, (e: unknown) => setRemoteError(ipcError(e)));
+  };
+  const saveRelay = () => {
+    setRelayMsg(null);
+    window.studio.setPhoneRelay(address, secret.trim() ? secret.trim() : null).then((l) => {
+      setLink(l);
+      setSecret('');
+      onPublicAddress(address.replace(/\/+$/, ''));
+      setRelayMsg({ ok: true, text: l.relayReady ? 'Servidor salvo.' : 'Endereço salvo. Falta a chave.' });
+    }, (e: unknown) => setRelayMsg({ ok: false, text: ipcError(e) }));
   };
   const turnValid = turnServer(turnDraft);
   const turnEmpty = !turnDraft.urls.trim() && !turnDraft.username.trim() && !turnDraft.credential.trim();
@@ -92,6 +104,18 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
             </div>
             <input type="checkbox" className="switch" checked={remoteOn} aria-label="Celular em outra rede" onChange={(e) => toggleRemote(e.target.checked)} />
           </div>
+          <label className="option-field">
+            <span className="option-label">Link para outra rede por</span>
+            <select className="option-select" value={mode} onChange={(e) => {
+              const next = e.target.value as 'cloudflare' | 'servidor';
+              setRemoteError(null);
+              // Trocar o modo com o link ligado já religa pelo outro caminho.
+              window.studio.setPhoneRemote(remoteOn, next).then(setLink, (err: unknown) => setRemoteError(ipcError(err)));
+            }}>
+              <option value="cloudflare">Túnel rápido da Cloudflare (link muda a cada vez)</option>
+              <option value="servidor" disabled={!link?.relayReady}>Meu servidor{publicAddress ? ` · ${publicAddress.replace(/^https?:\/\//, '')}` : ''}{link?.relayReady ? ' (link fixo)' : ' — configure abaixo'}</option>
+            </select>
+          </label>
           {(remote.state === 'erro' || remoteError) && <p className="device-error">{remoteError ?? remote.message}</p>}
           {remote.state === 'ligado' && !turn && <p className="hint">No 4G, algumas operadoras bloqueiam o vídeo direto. Se o celular conectar mas ficar “Sem vídeo”, configure um servidor TURN em <b>Retransmissão do vídeo</b>, abaixo.</p>}
           <p className="modal-text">
@@ -114,7 +138,8 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
               <button type="button" className="btn btn-small" onClick={() => { void window.studio.copyText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}><Copy size={13} /> {copied ? 'Copiado' : 'Copiar'}</button>
             </div>
           )}
-          {remote.state === 'ligado' && <p className="hint">O link muda cada vez que o endereço público é ligado. Ele só funciona com este código; desligue quando terminar.</p>}
+          {remote.state === 'ligado' && mode === 'cloudflare' && <p className="hint">O link muda cada vez que o endereço público é ligado. Ele só funciona com este código; desligue quando terminar.</p>}
+          {remote.state === 'ligado' && mode === 'servidor' && <p className="hint">Link fixo do seu domínio: pode deixar o QR Code impresso. Ele só funciona com este código (use “Gerar novo link” para trocar).</p>}
           {!link?.publicUrl && (
             <p className="hint">Na primeira vez, o celular avisa que a conexão “não é particular” (o certificado é deste computador): toque em <b>Mostrar detalhes / Avançado</b> e depois em <b>visitar o site / Continuar</b>. Se o Mac perguntar sobre conexões de entrada, clique em <b>Permitir</b>.</p>
           )}
@@ -154,11 +179,36 @@ export function PhoneDialog({ publicAddress, onPublicAddress, turn, onTurn, onCl
           </details>
 
           <details className="defaults">
-            <summary>Endereço público (quando tiver um domínio)</summary>
-            <p className="hint">Com um domínio próprio, os celulares poderão entrar de qualquer rede (4G, outro Wi‑Fi). Deixe vazio para usar só a rede local.</p>
+            <summary>Qualidade dos celulares · {quality.mbps} Mbps · {quality.priority === 'nitidez' ? 'nitidez' : quality.priority === 'fluidez' ? 'fluidez' : 'equilíbrio'}</summary>
+            <label className="option-field">
+              <span className="option-label">Taxa máxima de cada celular <output>{quality.mbps} Mbps</output></span>
+              <input type="range" min={2} max={16} step={1} value={quality.mbps} onChange={(e) => onQuality({ ...quality, mbps: Number(e.target.value) })} aria-label="Taxa máxima de cada celular" />
+            </label>
+            <label className="option-field">
+              <span className="option-label">Quando o celular esquentar ou o Wi‑Fi apertar</span>
+              <select className="option-select" value={quality.priority} onChange={(e) => onQuality({ ...quality, priority: e.target.value as PhoneQuality['priority'] })}>
+                <option value="nitidez">Manter a nitidez (pode perder quadros)</option>
+                <option value="equilibrio">Equilíbrio (recomendado)</option>
+                <option value="fluidez">Manter o movimento (pode perder nitidez)</option>
+              </select>
+            </label>
+            <p className="hint">Vale na hora para os celulares conectados. Em “Informações” (i) de cada celular aparece o que ele está mandando e se reduziu por calor/processador ou pela rede. Some celulares × taxa: com 3 celulares a 8 Mbps o Wi‑Fi precisa de ~24 Mbps livres (prefira 5 GHz e o Mac no cabo).</p>
+          </details>
+
+          <details className="defaults">
+            <summary>Meu servidor (domínio próprio) {link?.relayReady ? '· configurado' : ''}</summary>
+            <p className="hint">Link fixo no seu domínio, com certificado de verdade (o celular não mostra aviso). Instale o serviço <b>camera-relay</b> no Easypanel (instruções em camera-relay/README.md) e use aqui o mesmo endereço e a mesma chave (RELAY_SECRET).</p>
+            <label className="option-field">
+              <span className="option-label">Endereço</span>
+              <input className={`field ${addressOk ? '' : 'select-missing'}`} placeholder="https://camera.seudominio.com.br" value={address} onChange={(e) => setAddress(e.target.value.trim())} aria-label="Endereço do servidor" spellCheck={false} />
+            </label>
+            <label className="option-field">
+              <span className="option-label">Chave (RELAY_SECRET){link?.relayReady ? ' · guardada, deixe vazio para manter' : ''}</span>
+              <input className="field" type="password" placeholder={link?.relayReady ? '••••••••••••' : 'mínimo 16 caracteres'} value={secret} onChange={(e) => setSecret(e.target.value)} aria-label="Chave do servidor" autoComplete="off" />
+            </label>
             <div className="link-row">
-              <input className={`field ${addressOk ? '' : 'select-missing'}`} placeholder="https://camera.seudominio.com.br" value={address} onChange={(e) => setAddress(e.target.value.trim())} aria-label="Endereço público" />
-              <button type="button" className="btn btn-small" disabled={!addressOk || address === publicAddress} onClick={() => onPublicAddress(address.replace(/\/+$/, ''))}>Salvar</button>
+              <button type="button" className="btn btn-small" disabled={!addressOk || (address === publicAddress && !secret.trim())} onClick={saveRelay}>Salvar</button>
+              {relayMsg && <span className={relayMsg.ok ? 'hint' : 'device-error'}>{relayMsg.text}</span>}
             </div>
           </details>
         </div>
